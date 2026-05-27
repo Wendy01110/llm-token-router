@@ -1,0 +1,57 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from token_router.app.config import (
+    ApiKeyConfig,
+    AppConfig,
+    ModelInstanceConfig,
+    ProviderConfig,
+    RefreshConfig,
+    RoutingConfig,
+)
+from token_router.app.database import init_db
+from token_router.app.usage import UsageManager
+
+
+@pytest.fixture
+def fixed_now():
+    return datetime(2026, 5, 27, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+
+@pytest.fixture
+def app_config():
+    return AppConfig(
+        refresh=RefreshConfig(timezone="Asia/Shanghai", daily_reset_hour=11),
+        routing=RoutingConfig(
+            default_level=1,
+            fallback_enabled=True,
+            max_fallback_level=5,
+        ),
+        providers={
+            "test": ProviderConfig(
+                type="openai_compatible",
+                base_url="https://example.test/v1",
+                keys=[ApiKeyConfig(id="k1", value="sk-1")],
+            )
+        },
+        model_instances=[
+            ModelInstanceConfig(
+                name="model-a",
+                provider="test",
+                key_id="k1",
+                level=1,
+                daily_quota=100,
+                priority=10,
+                groups=["general"],
+            )
+        ],
+    )
+
+
+@pytest.fixture
+def usage_manager(tmp_path):
+    db_path = tmp_path / "usage.sqlite3"
+    init_db(db_path)
+    return UsageManager(db_path)
