@@ -1,0 +1,65 @@
+refresh:
+  timezone: Asia/Shanghai
+  daily_reset_hour: 11
+
+routing:
+  default_level: 1
+  fallback_enabled: true
+  max_fallback_level: 5
+
+providers:
+  dashscope:
+    type: openai_compatible
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    keys:
+      - id: dashscope_1
+        value: ${DASHSCOPE_API_KEY_1}
+      - id: dashscope_2
+        value: ${DASHSCOPE_API_KEY_2}
+
+  deepseek:
+    type: openai_compatible
+    base_url: https://api.deepseek.com/v1
+    keys:
+      - id: deepseek_1
+        value: ${DEEPSEEK_API_KEY_1}
+
+  local_ollama:
+    type: openai_compatible
+    base_url: http://localhost:11434/v1
+    keys:
+      - id: local
+        value: local
+
+model_instances:
+  - name: qwen3-235b-a22b
+    provider: dashscope
+    key_id: dashscope_1
+    level: 1
+    daily_quota: 2000000
+    priority: 10
+    groups: [reasoning, general]
+
+  - name: qwen3-235b-a22b
+    provider: dashscope
+    key_id: dashscope_2
+    level: 1
+    daily_quota: 2000000
+    priority: 10
+    groups: [reasoning, general]
+
+  - name: deepseek-chat
+    provider: deepseek
+    key_id: deepseek_1
+    level: 2
+    daily_quota: 3000000
+    priority: 20
+    groups: [general, coding]
+
+  - name: qwen2.5coder-local
+    provider: local_ollama
+    key_id: local
+    level: 5
+    daily_quota: 999999999
+    priority: 100
+    groups: [coding, fallback]
