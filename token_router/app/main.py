@@ -7,9 +7,10 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from token_router.app.api import admin, health
+from token_router.app.api import admin, chat, health
 from token_router.app.config import AppConfig, load_config
 from token_router.app.database import init_db
+from token_router.app.providers.openai_compatible import OpenAICompatibleProvider
 from token_router.app.usage import UsageManager
 
 
@@ -33,11 +34,12 @@ def create_app(
 
     app.state.config = config
     app.state.usage_manager = usage_manager
-    app.state.provider = provider
+    app.state.provider = provider or OpenAICompatibleProvider()
     app.state.now_fn = now_fn or datetime.now
 
     app.include_router(health.router)
     app.include_router(admin.router)
+    app.include_router(chat.router)
     return app
 
 
