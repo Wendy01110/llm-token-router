@@ -13,3 +13,4 @@ logs/
 *.sqlite
 *.sqlite3
 *.egg-info/
+.vscode/

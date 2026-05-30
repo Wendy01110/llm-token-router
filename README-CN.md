@@ -144,6 +144,12 @@ curl -s http://127.0.0.1:8000/admin/route/preview \
 curl -s http://127.0.0.1:8000/admin/models
 ```
 
+打开用量页面：
+
+```text
+http://127.0.0.1:8000/admin/usage
+```
+
 ## Chat Completions
 
 ```bash
@@ -392,6 +398,12 @@ curl -s http://127.0.0.1:8000/admin/route/preview \
 
 ```bash
 curl -s http://127.0.0.1:8000/admin/models
+```
+
+查看 API Key 用量页面：
+
+```text
+http://127.0.0.1:8000/admin/usage
 ```
 
 ## 当前限制

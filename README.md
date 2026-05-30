@@ -234,6 +234,12 @@ List model status and quota usage:
 curl -s http://127.0.0.1:8000/admin/models
 ```
 
+Open the usage dashboard:
+
+```text
+http://127.0.0.1:8000/admin/usage
+```
+
 ## Run
 
 Run in the foreground during development so logs stay visible:
@@ -382,6 +388,12 @@ tail -n 80 logs/router.log
 
 ```bash
 curl -s http://127.0.0.1:8000/admin/models
+```
+
+## Usage Dashboard
+
+```text
+http://127.0.0.1:8000/admin/usage
 ```
 
 ## MVP Limits
