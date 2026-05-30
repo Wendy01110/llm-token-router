@@ -38,28 +38,25 @@ def make_config():
             ModelInstanceConfig(
                 name="model-a",
                 provider="test",
-                key_id="k1",
                 level=1,
-                daily_quota=100,
                 priority=10,
+                keys=[{"key_id": "k1", "daily_quota": 100}],
                 groups=["general"],
             ),
             ModelInstanceConfig(
                 name="model-a",
                 provider="test",
-                key_id="k2",
                 level=1,
-                daily_quota=100,
                 priority=10,
+                keys=[{"key_id": "k2", "daily_quota": 100}],
                 groups=["general"],
             ),
             ModelInstanceConfig(
                 name="model-b",
                 provider="test",
-                key_id="k1",
                 level=2,
-                daily_quota=100,
                 priority=20,
+                keys=[{"key_id": "k1", "daily_quota": 100}],
                 groups=["general"],
             ),
         ],
@@ -114,3 +111,31 @@ def test_selector_raises_when_strict_model_is_exhausted():
             router={"level": 1, "strict_model": True},
             quota_date="2026-05-27",
         )
+
+
+def test_selector_expands_multiple_keys_from_one_model_instance():
+    config = make_config()
+    config.model_instances[0] = ModelInstanceConfig(
+        name="model-a",
+        provider="test",
+        level=1,
+        priority=10,
+        keys=[
+            {"key_id": "k1", "daily_quota": 100, "priority": 30},
+            {"key_id": "k2", "daily_quota": 200, "priority": 20},
+        ],
+        groups=["general"],
+    )
+    config.model_instances = [config.model_instances[0], config.model_instances[2]]
+    selector = RouteSelector(
+        config,
+        FakeUsageManager({("test", "k1", "model-a"): UsageRecord(total_tokens=25)}),
+    )
+
+    selected = selector.select(
+        model="auto", router={"level": 1}, quota_date="2026-05-27"
+    )
+
+    assert selected.key_id == "k2"
+    assert selected.daily_quota == 200
+    assert selected.priority == 20

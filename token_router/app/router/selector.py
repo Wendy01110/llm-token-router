@@ -3,7 +3,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from token_router.app.config import AppConfig, ModelInstanceConfig
+from token_router.app.config import (
+    AppConfig,
+    ModelInstanceConfig,
+    ModelInstanceKeyConfig,
+)
 from token_router.app.router.quota import is_exhausted, stage_for_usage, usage_ratio
 from token_router.app.schemas.router import SelectedRoute
 from token_router.app.usage import UsageManager
@@ -49,8 +53,9 @@ class RouteSelector:
 
     def list_status(self, quota_date: str) -> list[SelectedRoute]:
         return [
-            self._build_route(instance, quota_date)
+            self._build_route(instance, key_config, quota_date)
             for instance in self.config.model_instances
+            for key_config in instance.iter_key_configs()
         ]
 
     def _select_matching(
@@ -75,9 +80,10 @@ class RouteSelector:
             if model_group and model_group not in instance.groups:
                 continue
 
-            route = self._build_route(instance, quota_date)
-            if route.available:
-                candidates.append(route)
+            for key_config in instance.iter_key_configs():
+                route = self._build_route(instance, key_config, quota_date)
+                if route.available:
+                    candidates.append(route)
 
         if not candidates:
             return None
@@ -114,27 +120,30 @@ class RouteSelector:
         return list(range(start_level, max_fallback_level + 1))
 
     def _build_route(
-        self, instance: ModelInstanceConfig, quota_date: str
+        self,
+        instance: ModelInstanceConfig,
+        key_config: ModelInstanceKeyConfig,
+        quota_date: str,
     ) -> SelectedRoute:
         usage = self.usage_manager.get_usage(
             instance.provider,
-            instance.key_id,
+            key_config.key_id,
             instance.name,
             quota_date,
         )
-        exhausted = is_exhausted(usage.total_tokens, instance.daily_quota)
+        exhausted = is_exhausted(usage.total_tokens, key_config.daily_quota)
         return SelectedRoute(
             provider=instance.provider,
             endpoint=instance.endpoint,
-            key_id=instance.key_id,
+            key_id=key_config.key_id,
             model_name=instance.name,
             level=instance.level,
-            daily_quota=instance.daily_quota,
+            daily_quota=key_config.daily_quota,
             used_tokens=usage.total_tokens,
-            usage_ratio=usage_ratio(usage.total_tokens, instance.daily_quota),
-            stage=stage_for_usage(usage.total_tokens, instance.daily_quota),
-            priority=instance.priority,
-            enabled=instance.enabled,
-            available=instance.enabled and not exhausted,
+            usage_ratio=usage_ratio(usage.total_tokens, key_config.daily_quota),
+            stage=stage_for_usage(usage.total_tokens, key_config.daily_quota),
+            priority=key_config.priority or instance.priority,
+            enabled=instance.enabled and key_config.enabled,
+            available=instance.enabled and key_config.enabled and not exhausted,
             groups=tuple(instance.groups),
         )

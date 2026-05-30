@@ -39,17 +39,19 @@ model_instances:
   - name: ${MIMO_TOKEN_PLAN_MODEL}
     provider: xiaomi_mimo
     endpoint: token_plan
-    key_id: mimo_token_plan
     level: 1
-    daily_quota: 50000000
     priority: 10
+    keys:
+      - key_id: mimo_token_plan
+        daily_quota: 50000000
     groups: [coding, general]
 
   - name: ${VOLCENGINE_ARK_MODEL}
     provider: volcengine_ark
     endpoint: api
-    key_id: volcengine_ark_1
     level: 2
-    daily_quota: 50000000
     priority: 20
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 50000000
     groups: [general, coding, fallback]

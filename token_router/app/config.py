@@ -67,16 +67,56 @@ class ProviderConfig(BaseModel):
         )
 
 
+class ModelInstanceKeyConfig(BaseModel):
+    key_id: str
+    daily_quota: int = Field(ge=1)
+    priority: int | None = Field(default=None, ge=1)
+    enabled: bool = True
+
+
 class ModelInstanceConfig(BaseModel):
     name: str
     provider: str
     endpoint: str = "default"
-    key_id: str
+    key_id: str | None = None
     level: int = Field(ge=1)
-    daily_quota: int = Field(ge=1)
+    daily_quota: int | None = Field(default=None, ge=1)
     priority: int = Field(default=100, ge=1)
+    keys: list[ModelInstanceKeyConfig] = Field(default_factory=list)
     groups: list[str] = Field(default_factory=list)
     enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_key_shape(self) -> ModelInstanceConfig:
+        has_legacy_key = self.key_id is not None or self.daily_quota is not None
+        if self.keys and has_legacy_key:
+            raise ValueError("use either keys or key_id/daily_quota, not both")
+        if self.keys:
+            return self
+        if self.key_id is None or self.daily_quota is None:
+            raise ValueError("model instance must define keys or key_id/daily_quota")
+        return self
+
+    def iter_key_configs(self) -> list[ModelInstanceKeyConfig]:
+        if self.keys:
+            return [
+                ModelInstanceKeyConfig(
+                    key_id=key.key_id,
+                    daily_quota=key.daily_quota,
+                    priority=key.priority or self.priority,
+                    enabled=key.enabled,
+                )
+                for key in self.keys
+            ]
+        if self.key_id is None or self.daily_quota is None:
+            return []
+        return [
+            ModelInstanceKeyConfig(
+                key_id=self.key_id,
+                daily_quota=self.daily_quota,
+                priority=self.priority,
+            )
+        ]
 
 
 class AppConfig(BaseModel):
@@ -99,11 +139,12 @@ class AppConfig(BaseModel):
                 raise ValueError(
                     f"model {instance.name!r} references unknown endpoint {instance.endpoint!r}"
                 ) from exc
-            key_ids = {key.id for key in endpoint.keys}
-            if instance.key_id not in key_ids:
-                raise ValueError(
-                    f"model {instance.name!r} references unknown key {instance.key_id!r}"
-                )
+            endpoint_key_ids = {key.id for key in endpoint.keys}
+            for key_config in instance.iter_key_configs():
+                if key_config.key_id not in endpoint_key_ids:
+                    raise ValueError(
+                        f"model {instance.name!r} references unknown key {key_config.key_id!r}"
+                    )
         return self
 
 

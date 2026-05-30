@@ -46,10 +46,9 @@ def app_config():
                 name="model-a",
                 provider="test",
                 endpoint="api",
-                key_id="k1",
                 level=1,
-                daily_quota=100,
                 priority=10,
+                keys=[{"key_id": "k1", "daily_quota": 100}],
                 groups=["general"],
             )
         ],

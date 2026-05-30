@@ -23,10 +23,11 @@ providers:
 model_instances:
   - name: test-model
     provider: test
-    key_id: test_1
     level: 1
-    daily_quota: 1000
     priority: 10
+    keys:
+      - key_id: test_1
+        daily_quota: 1000
     groups: [general]
 """,
         encoding="utf-8",
@@ -55,9 +56,10 @@ providers:
 model_instances:
   - name: test-model
     provider: test
-    key_id: test_1
     level: 1
-    daily_quota: 1000
+    keys:
+      - key_id: test_1
+        daily_quota: 1000
 """,
         encoding="utf-8",
     )
@@ -125,15 +127,17 @@ model_instances:
   - name: mimo-v2.5-pro
     provider: xiaomi_mimo
     endpoint: token_plan
-    key_id: token_plan_key
     level: 1
-    daily_quota: 1000
+    keys:
+      - key_id: token_plan_key
+        daily_quota: 1000
   - name: mimo-v2.5
     provider: xiaomi_mimo
     endpoint: api
-    key_id: api_key
     level: 2
-    daily_quota: 1000
+    keys:
+      - key_id: api_key
+        daily_quota: 1000
 """,
         encoding="utf-8",
     )
@@ -144,3 +148,45 @@ model_instances:
     assert config.providers["xiaomi_mimo"].get_endpoint("api").base_url == "https://api.xiaomimimo.com/v1"
     assert config.model_instances[0].endpoint == "token_plan"
     assert config.model_instances[1].endpoint == "api"
+
+
+def test_model_instance_supports_multiple_keys_with_independent_quota(tmp_path, monkeypatch):
+    monkeypatch.setenv("KEY_ONE", "sk-one")
+    monkeypatch.setenv("KEY_TWO", "sk-two")
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+providers:
+  test:
+    type: openai_compatible
+    endpoints:
+      api:
+        base_url: https://example.test/v1
+        keys:
+          - id: key_one
+            value: ${KEY_ONE}
+          - id: key_two
+            value: ${KEY_TWO}
+model_instances:
+  - name: shared-model
+    provider: test
+    endpoint: api
+    level: 1
+    priority: 10
+    keys:
+      - key_id: key_one
+        daily_quota: 1000
+        priority: 20
+      - key_id: key_two
+        daily_quota: 2000
+        priority: 30
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_file)
+    key_instances = config.model_instances[0].iter_key_configs()
+
+    assert [key.key_id for key in key_instances] == ["key_one", "key_two"]
+    assert [key.daily_quota for key in key_instances] == [1000, 2000]
+    assert [key.priority for key in key_instances] == [20, 30]
