@@ -29,11 +29,11 @@ providers:
     type: openai_compatible
     endpoints:
       api:
-        base_url: ${VOLCENGINE_ARK_BASE_URL}
+        base_url: ${ARK_BASE_URL}
         auth_header: authorization_bearer
         keys:
           - id: volcengine_ark_1
-            value: ${VOLCENGINE_ARK_API_KEY}
+            value: ${ARK_API_KEY}
 
 model_instances:
   - name: ${MIMO_TOKEN_PLAN_MODEL}

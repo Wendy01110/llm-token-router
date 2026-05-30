@@ -1,4 +1,10 @@
+import re
+from pathlib import Path
+
 from token_router.app.config import load_config, resolve_env_refs
+
+
+ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
 
 def test_load_config_resolves_environment_variables(tmp_path, monkeypatch):
@@ -80,6 +86,24 @@ def test_env_resolution_ignores_commented_placeholders(monkeypatch):
     assert "value: sk-present" in resolved
 
 
+def test_env_example_covers_config_example_placeholders():
+    config_text = Path("config.example.yaml").read_text(encoding="utf-8")
+    env_text = Path(".env.example").read_text(encoding="utf-8")
+    config_vars = {
+        match.group(1)
+        for line in config_text.splitlines()
+        if not line.lstrip().startswith("#")
+        for match in ENV_PATTERN.finditer(line)
+    }
+    env_vars = {
+        line.split("=", 1)[0]
+        for line in env_text.splitlines()
+        if line and not line.lstrip().startswith("#") and "=" in line
+    }
+
+    assert config_vars <= env_vars
+
+
 def test_config_example_uses_current_local_providers(monkeypatch):
     monkeypatch.setenv(
         "MIMO_TOKEN_PLAN_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1"
@@ -87,9 +111,9 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     monkeypatch.setenv("MIMO_TOKEN_PLAN_KEY", "tp-test")
     monkeypatch.setenv("MIMO_TOKEN_PLAN_MODEL", "mimo-v2.5-pro")
     monkeypatch.setenv(
-        "VOLCENGINE_ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+        "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
     )
-    monkeypatch.setenv("VOLCENGINE_ARK_API_KEY", "ark-test")
+    monkeypatch.setenv("ARK_API_KEY", "ark-test")
     monkeypatch.setenv("VOLCENGINE_ARK_MODEL", "doubao-seed-2-0-lite-260215")
 
     config = load_config("config.example.yaml")

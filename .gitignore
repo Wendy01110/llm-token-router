@@ -7,6 +7,8 @@ __pycache__/
 venv/
 .env
 config.yaml
+logs/
+.router.pid
 *.db
 *.sqlite
 *.sqlite3

@@ -14,8 +14,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "openai>=1.0",
     "pytest>=8.2",
 ]
+
+[tool.setuptools.packages.find]
+include = ["token_router*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

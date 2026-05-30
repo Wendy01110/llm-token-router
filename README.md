@@ -1,45 +1,41 @@
 # Local LLM Token Router
 
-本项目是一个本地自用的 LLM 网关，用来把 OpenAI 兼容的 Chat Completions 请求，按模型等级、每日 token 配额和 25% 用量阶段路由到不同模型实例。
+Local-only LLM gateway that routes OpenAI-compatible chat requests across configured model instances by level, daily token quota, and 25% usage stage.
 
-当前 MVP 目标是本地个人使用，不包含 Web 管理后台、用户鉴权、Redis 锁、复杂重试和流式响应。
+The MVP is designed for personal local use.
 
-## 快速开始
+## Setup
 
 ```bash
+conda activate llm_token_router
 python -m pip install -e ".[dev]"
 cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-编辑 `.env`，填入你当前的小米 MiMo Token/Coding Plan key 和火山方舟 key：
+Edit `.env` and set your current Xiaomi MiMo Token/Coding Plan key and Volcengine Ark key:
 
 ```bash
 MIMO_TOKEN_PLAN_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
 MIMO_TOKEN_PLAN_KEY=tp-...
 MIMO_TOKEN_PLAN_MODEL=mimo-v2.5-pro
 
-VOLCENGINE_ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
-VOLCENGINE_ARK_API_KEY=...
+ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+ARK_API_KEY=...
 VOLCENGINE_ARK_MODEL=doubao-seed-2-0-lite-260215
 ```
 
-`load_config()` 会先读取 `config.yaml` 同目录下的 `.env`，再解析配置里的 `${VAR_NAME}`。如果同名变量已经存在于 shell 环境变量中，shell 里的值优先。
+`load_config()` reads `.env` from the same directory as `config.yaml` before resolving `${VAR_NAME}` references. Existing shell environment variables take precedence over values in `.env`.
 
-`config.example.yaml` 默认只启用两个供应商：
+`config.example.yaml` only enables the two providers above by default.
 
-- `xiaomi_mimo`
-- `volcengine_ark`
+Provider and endpoint are separate:
 
-## 核心概念
+- `provider` is the supplier, for example `xiaomi_mimo`.
+- `endpoint` is one concrete URL/key pool under that supplier, for example `token_plan` or a future `api`.
+- `model_instances` point to `provider + endpoint + key_id + model`.
 
-`provider` 和 `endpoint` 是分开的：
-
-- `provider` 表示供应商，例如 `xiaomi_mimo`。
-- `endpoint` 表示这个供应商下面的一组具体 URL 和 key，例如 `token_plan`，或者后续新增的 `api`。
-- `model_instances` 指向 `provider + endpoint + key_id + model`。
-
-这对小米 MiMo 很重要，因为 Token/Coding Plan 的 URL/key 和普通供应商 API 的 URL/key 是两套东西，应该放在同一个供应商下面的不同 endpoint：
+This matters for Xiaomi MiMo because Token/Coding Plan URL/key and normal supplier API URL/key are different. Keep them as different endpoints under the same provider:
 
 ```yaml
 providers:
@@ -60,92 +56,28 @@ providers:
             value: ${MIMO_API_KEY}
 ```
 
-鉴权方式：
+To add another provider later, add a new entry under `providers`, then add one or more `model_instances` pointing at that provider endpoint/key pair. Use `auth_header: authorization_bearer` for normal OpenAI-compatible Bearer auth, or `auth_header: api_key` for providers that expect an `api-key` header.
 
-- `auth_header: authorization_bearer`：使用 `Authorization: Bearer <key>`。
-- `auth_header: api_key`：使用 `api-key: <key>`。
+## Configuration Maintenance
 
-## 启动服务
+Local configuration lives in:
 
-```bash
-uvicorn token_router.app.main:app --reload
-```
+- `config.yaml`: providers, endpoints, model instances, quota and routing settings.
+- `.env`: real URLs, API keys, and model names referenced by `${VAR_NAME}`.
 
-默认读取：
+Keep both files local. They are ignored by Git.
 
-- 配置文件：`config.yaml`
-- SQLite 数据库：`token_router.sqlite3`
+After changing either file, restart `uvicorn` so the app reloads the config.
 
-可以用环境变量覆盖：
+### Add An API Key
 
-```bash
-export TOKEN_ROUTER_CONFIG=/path/to/config.yaml
-export TOKEN_ROUTER_DB=/path/to/token_router.sqlite3
-```
-
-## 调试路由
-
-预览会选择哪个模型实例：
-
-```bash
-curl -s http://127.0.0.1:8000/admin/route/preview \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "auto",
-    "router": {
-      "level": 1
-    }
-  }'
-```
-
-查看模型状态和用量：
-
-```bash
-curl -s http://127.0.0.1:8000/admin/models
-```
-
-## Chat Completions
-
-```bash
-curl -s http://127.0.0.1:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "auto",
-    "messages": [
-      {
-        "role": "user",
-        "content": "用一段话解释 GraphRAG。"
-      }
-    ],
-    "router": {
-      "level": 1,
-      "provider": "auto",
-      "fallback": true,
-      "debug": true
-    }
-  }'
-```
-
-## 配置维护
-
-本地配置主要在两个文件里：
-
-- `config.yaml`：供应商、endpoint、模型实例、额度和路由配置。
-- `.env`：真实 URL、API key 和模型名。
-
-这两个文件都只保留在本地，已经被 Git 忽略。
-
-每次修改 `config.yaml` 或 `.env` 后，需要重启 `uvicorn`，让服务重新加载配置。
-
-### 增加 API Key
-
-先在 `.env` 里增加密钥：
+Add the secret to `.env`:
 
 ```bash
 MIMO_TOKEN_PLAN_KEY_2=tp-another-key
 ```
 
-再在 `config.yaml` 的对应 endpoint 下增加 key：
+Add a key entry under the existing endpoint in `config.yaml`:
 
 ```yaml
 providers:
@@ -159,7 +91,7 @@ providers:
             value: ${MIMO_TOKEN_PLAN_KEY_2}
 ```
 
-然后增加一个使用这个 key 的模型实例：
+Then add a model instance for that key:
 
 ```yaml
 model_instances:
@@ -173,20 +105,20 @@ model_instances:
     groups: [coding, general]
 ```
 
-同一个 endpoint 下的 `key_id` 必须唯一。
+Use a unique `key_id` per endpoint.
 
-### 删除 API Key
+### Remove An API Key
 
-需要同时删除两类引用：
+Remove both references:
 
-- 删除 `providers.<provider>.endpoints.<endpoint>.keys` 下面的 key。
-- 删除或修改所有使用这个 `key_id` 的 `model_instances`。
+- Delete the key entry from `providers.<provider>.endpoints.<endpoint>.keys`.
+- Delete or update every `model_instances` entry that uses that `key_id`.
 
-服务启动时会校验配置。如果某个模型实例指向不存在的 key，配置加载会失败。
+The app validates this on startup. If a model instance points at a missing key, startup config loading fails.
 
-### 增加模型
+### Add A Model
 
-增加一个 `model_instances` 条目：
+Add one `model_instances` entry:
 
 ```yaml
 model_instances:
@@ -200,20 +132,20 @@ model_instances:
     groups: [general]
 ```
 
-字段说明：
+Fields:
 
-- `name`：上游平台真实模型名。
-- `provider`：`providers` 下面的供应商名。
-- `endpoint`：该供应商下面的 URL/key 池。
-- `key_id`：该 endpoint 下面的 key。
-- `level`：等级，数字越小优先级越高，`1` 最高。
-- `daily_quota`：这个模型实例每天可用 token 额度。
-- `priority`：同等级、同阶段内的排序，数字越小越优先。
-- `groups`：可选标签，例如 `coding`、`general`、`reasoning`、`fallback`。
+- `name`: upstream model name sent to the provider.
+- `provider`: supplier name under `providers`.
+- `endpoint`: URL/key pool under that provider.
+- `key_id`: key under that endpoint.
+- `level`: smaller is higher priority; `1` is strongest.
+- `daily_quota`: daily token budget for this model/key instance.
+- `priority`: lower wins within the same level/stage.
+- `groups`: optional tags such as `coding`, `general`, `reasoning`, `fallback`.
 
-### 禁用或删除模型
+### Disable Or Remove A Model
 
-临时禁用模型实例：
+To temporarily disable a model instance:
 
 ```yaml
 model_instances:
@@ -224,11 +156,11 @@ model_instances:
     enabled: false
 ```
 
-永久删除时，直接删掉对应的 `model_instances` 条目。
+To permanently remove it, delete that `model_instances` block.
 
-### 增加供应商
+### Add A New Supplier
 
-先增加 provider、endpoint 和 key：
+Add the provider endpoint and key:
 
 ```yaml
 providers:
@@ -243,18 +175,18 @@ providers:
             value: ${NEW_SUPPLIER_API_KEY}
 ```
 
-再在 `.env` 里增加变量：
+Add the variables to `.env`:
 
 ```bash
 NEW_SUPPLIER_BASE_URL=https://example.com/v1
 NEW_SUPPLIER_API_KEY=sk-...
 ```
 
-最后增加指向 `new_supplier/api/new_supplier_1` 的模型实例。
+Then add model instances that point at `new_supplier/api/new_supplier_1`.
 
-### 给已有供应商增加新 URL
+### Add A New URL Under An Existing Supplier
 
-当 URL、key 类型或额度体系不同时，应该增加一个新的 endpoint。比如小米 MiMo Token Plan 和普通 API 应该分开：
+Use a new endpoint name when the URL or key type differs. For example, Xiaomi MiMo Token Plan and Xiaomi MiMo normal API should be separate endpoints:
 
 ```yaml
 providers:
@@ -274,21 +206,21 @@ providers:
             value: ${MIMO_API_KEY}
 ```
 
-然后给每个 endpoint/key 单独配置 `model_instances`。
+Add separate model instances for each endpoint/key pair.
 
-### 修改 URL
+### Change A URL
 
-优先只改 `.env`：
+Prefer changing the `.env` value rather than editing `config.yaml`:
 
 ```bash
 MIMO_TOKEN_PLAN_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
 ```
 
-如果新 URL 对应的是另一套 key 或鉴权方式，建议新建 endpoint，而不是直接改旧 endpoint。这样历史用量和路由行为更容易理解。
+If the new URL uses a different key or auth mode, create a new endpoint instead of mutating the existing one. That keeps old usage records and routing behavior easier to understand.
 
-### 检查配置是否生效
+### Check Your Changes
 
-重启服务后，先预览路由：
+Preview the selected route:
 
 ```bash
 curl -s http://127.0.0.1:8000/admin/route/preview \
@@ -296,21 +228,172 @@ curl -s http://127.0.0.1:8000/admin/route/preview \
   -d '{"model":"auto","router":{"level":1,"debug":true}}'
 ```
 
-再看模型状态：
+List model status and quota usage:
 
 ```bash
 curl -s http://127.0.0.1:8000/admin/models
 ```
 
-## 当前限制
+## Run
 
-- 暂不支持流式响应。
-- Provider adapter 默认面向 OpenAI 兼容接口。
-- API key 从本地 `.env` 和 `config.yaml` 读取。
-- 暂无 Web UI、用户鉴权、Redis 锁、失败重试和 cooldown 策略。
-
-## 测试
+Run in the foreground during development so logs stay visible:
 
 ```bash
+conda activate llm_token_router
+uvicorn token_router.app.main:app --reload
+```
+
+For local background use, run this from the project root:
+
+```bash
+mkdir -p logs
+nohup /opt/miniconda3/envs/llm_token_router/bin/python -m uvicorn token_router.app.main:app \
+  --host 127.0.0.1 \
+  --port 8000 \
+  > logs/router.log 2>&1 &
+echo $! > .router.pid
+```
+
+By default the service reads:
+
+- config: `config.yaml`
+- SQLite database: `token_router.sqlite3`
+
+Override them with:
+
+```bash
+export TOKEN_ROUTER_CONFIG=/path/to/config.yaml
+export TOKEN_ROUTER_DB=/path/to/token_router.sqlite3
+```
+
+Check that the service is running:
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/health
+```
+
+Successful output:
+
+```json
+{"status":"ok"}
+```
+
+View background logs:
+
+```bash
+tail -f logs/router.log
+```
+
+Stop the background service:
+
+```bash
+kill "$(cat .router.pid)"
+rm -f .router.pid
+```
+
+## Preview Routing
+
+```bash
+curl -s http://127.0.0.1:8000/admin/route/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "router": {
+      "level": 1
+    }
+  }'
+```
+
+## Chat Completions
+
+```bash
+curl -s http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Explain GraphRAG in one paragraph."
+      }
+    ],
+    "router": {
+      "level": 1,
+      "provider": "auto",
+      "fallback": true,
+      "debug": true
+    }
+  }'
+```
+
+## OpenAI SDK Example
+
+After starting the local router, test the OpenAI-compatible endpoint with the OpenAI Python SDK. The script calls local `http://127.0.0.1:8000/v1/chat/completions`, then prints the model response, usage, and `X-Router-*` headers.
+
+```bash
+conda activate llm_token_router
+python -m pip install -e ".[dev]"
+python examples/openai_chat_test.py
+```
+
+Defaults:
+
+```text
+base_url: http://127.0.0.1:8000/v1
+model: doubao-seed-2-0-mini-260428
+provider: volcengine_ark
+level: 3
+```
+
+The local router does not currently validate the client OpenAI API key, so the example script uses a placeholder key. Real upstream provider keys are still read from `.env` and `config.yaml`.
+
+Successful output should include:
+
+```text
+router_headers.X-Router-Provider = volcengine_ark
+router_headers.X-Router-Model = doubao-seed-2-0-mini-260428
+response.message.content
+response.usage.total_tokens
+```
+
+Override the target with environment variables:
+
+```bash
+ROUTER_MODEL=auto ROUTER_PROVIDER=volcengine_ark ROUTER_LEVEL=3 python examples/openai_chat_test.py
+```
+
+Test a specific model:
+
+```bash
+ROUTER_MODEL=doubao-seed-2-0-mini-260428 \
+ROUTER_PROVIDER=volcengine_ark \
+ROUTER_LEVEL=3 \
+python examples/openai_chat_test.py
+```
+
+If the script cannot connect, check the background service first:
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/health
+tail -n 80 logs/router.log
+```
+
+## Admin Models
+
+```bash
+curl -s http://127.0.0.1:8000/admin/models
+```
+
+## MVP Limits
+
+- Streaming responses are not supported yet.
+- Provider adapters assume OpenAI-compatible APIs.
+- API keys are loaded from local config/environment variables.
+- There is no web UI, user auth, Redis locking, or retry/cooldown policy in this version.
+
+## Tests
+
+```bash
+conda activate llm_token_router
 python -m pytest -v
 ```
