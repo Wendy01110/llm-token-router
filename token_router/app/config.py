@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -74,8 +75,16 @@ def resolve_env_refs(raw_text: str) -> str:
     return _ENV_PATTERN.sub(replace, raw_text)
 
 
+def load_env_file(config_path: Path) -> None:
+    env_path = config_path.parent / ".env"
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
+
+
 def load_config(path: str | Path = "config.yaml") -> AppConfig:
-    raw_text = Path(path).read_text(encoding="utf-8")
+    config_path = Path(path)
+    load_env_file(config_path)
+    raw_text = config_path.read_text(encoding="utf-8")
     resolved_text = resolve_env_refs(raw_text)
     data = yaml.safe_load(resolved_text)
     return AppConfig.model_validate(data)

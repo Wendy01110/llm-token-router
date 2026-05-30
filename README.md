@@ -9,15 +9,18 @@ The MVP is designed for personal local use.
 ```bash
 python -m pip install -e ".[dev]"
 cp config.example.yaml config.yaml
+cp .env.example .env
 ```
 
-Edit `config.yaml` and export the API keys referenced in it:
+Edit `.env` and set the API keys referenced by `config.yaml`:
 
 ```bash
-export DASHSCOPE_API_KEY_1="sk-..."
-export DASHSCOPE_API_KEY_2="sk-..."
-export DEEPSEEK_API_KEY_1="sk-..."
+DASHSCOPE_API_KEY_1=sk-...
+DASHSCOPE_API_KEY_2=sk-...
+DEEPSEEK_API_KEY_1=sk-...
 ```
+
+`load_config()` reads `.env` from the same directory as `config.yaml` before resolving `${VAR_NAME}` references. Existing shell environment variables take precedence over values in `.env`.
 
 ## Run
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import AsyncIterator
 
 from fastapi import FastAPI
 
@@ -20,12 +22,15 @@ def create_app(
     provider: object | None = None,
     now_fn: Callable[[], datetime] | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="Local LLM Token Router")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if app.state.config is None:
+            config_path = Path(os.environ.get("TOKEN_ROUTER_CONFIG", "config.yaml"))
+            if config_path.exists():
+                app.state.config = load_config(config_path)
+        yield
 
-    if config is None:
-        config_path = Path(os.environ.get("TOKEN_ROUTER_CONFIG", "config.yaml"))
-        if config_path.exists():
-            config = load_config(config_path)
+    app = FastAPI(title="Local LLM Token Router", lifespan=lifespan)
 
     if usage_manager is None:
         db_path = Path(os.environ.get("TOKEN_ROUTER_DB", "token_router.sqlite3"))
