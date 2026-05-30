@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
@@ -31,6 +32,7 @@ class ApiKeyConfig(BaseModel):
 class ProviderConfig(BaseModel):
     type: str = "openai_compatible"
     base_url: str
+    auth_header: Literal["authorization_bearer", "api_key"] = "authorization_bearer"
     keys: list[ApiKeyConfig]
 
 

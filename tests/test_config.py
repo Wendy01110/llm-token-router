@@ -65,3 +65,20 @@ model_instances:
     config = load_config(config_file)
 
     assert config.providers["test"].keys[0].value == "sk-from-dotenv"
+
+
+def test_config_example_uses_current_local_providers(monkeypatch):
+    monkeypatch.setenv("MIMO_BASE_URL", "https://token-plan-cn.xiaomimimo.com/v1")
+    monkeypatch.setenv("MIMO_TOKEN_PLAN_KEY", "tp-test")
+    monkeypatch.setenv("MIMO_MODEL", "mimo-v2.5-pro")
+    monkeypatch.setenv(
+        "VOLCENGINE_ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+    )
+    monkeypatch.setenv("VOLCENGINE_ARK_API_KEY", "ark-test")
+    monkeypatch.setenv("VOLCENGINE_ARK_MODEL", "doubao-seed-2-0-lite-260215")
+
+    config = load_config("config.example.yaml")
+
+    assert set(config.providers) == {"xiaomi_mimo", "volcengine_ark"}
+    assert config.providers["xiaomi_mimo"].auth_header == "api_key"
+    assert config.providers["volcengine_ark"].auth_header == "authorization_bearer"

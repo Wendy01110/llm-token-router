@@ -12,15 +12,21 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-Edit `.env` and set the API keys referenced by `config.yaml`:
+Edit `.env` and set your current Xiaomi MiMo Token/Coding Plan key and Volcengine Ark key:
 
 ```bash
-DASHSCOPE_API_KEY_1=sk-...
-DASHSCOPE_API_KEY_2=sk-...
-DEEPSEEK_API_KEY_1=sk-...
+MIMO_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+MIMO_TOKEN_PLAN_KEY=tp-...
+MIMO_MODEL=mimo-v2.5-pro
+
+VOLCENGINE_ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+VOLCENGINE_ARK_API_KEY=...
+VOLCENGINE_ARK_MODEL=doubao-seed-2-0-lite-260215
 ```
 
 `load_config()` reads `.env` from the same directory as `config.yaml` before resolving `${VAR_NAME}` references. Existing shell environment variables take precedence over values in `.env`.
+
+`config.example.yaml` only enables the two providers above by default. To add another provider later, add a new entry under `providers`, then add one or more `model_instances` pointing at that provider/key pair. Use `auth_header: authorization_bearer` for normal OpenAI-compatible Bearer auth, or `auth_header: api_key` for providers that expect an `api-key` header.
 
 ## Run
 
