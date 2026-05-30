@@ -114,7 +114,7 @@ def test_config_example_uses_current_local_providers(monkeypatch):
         "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
     )
     monkeypatch.setenv("ARK_API_KEY", "ark-test")
-    monkeypatch.setenv("VOLCENGINE_ARK_MODEL", "doubao-seed-2-0-lite-260215")
+    monkeypatch.setenv("ARK_MODEL", "doubao-seed-2-0-lite-260215")
 
     config = load_config("config.example.yaml")
 

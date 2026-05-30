@@ -46,7 +46,7 @@ model_instances:
         daily_quota: 50000000
     groups: [coding, general]
 
-  - name: ${VOLCENGINE_ARK_MODEL}
+  - name: ${ARK_MODEL}
     provider: volcengine_ark
     endpoint: api
     level: 2

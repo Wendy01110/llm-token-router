@@ -22,7 +22,7 @@ MIMO_TOKEN_PLAN_MODEL=mimo-v2.5-pro
 
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARK_API_KEY=...
-VOLCENGINE_ARK_MODEL=doubao-seed-2-0-lite-260215
+ARK_MODEL=doubao-seed-2-0-lite-260215
 ```
 
 `load_config()` reads `.env` from the same directory as `config.yaml` before resolving `${VAR_NAME}` references. Existing shell environment variables take precedence over values in `.env`.
