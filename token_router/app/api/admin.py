@@ -62,13 +62,16 @@ def usage_page(request: Request) -> HTMLResponse:
             "key_id": route.key_id,
             "model_name": route.model_name,
             "level": route.level,
+            "priority": route.priority,
             "stage": route.stage,
             "daily_quota": route.daily_quota,
+            "daily_request_quota": route.daily_request_quota,
             "usage_ratio": route.usage_ratio,
             "prompt_tokens": usage.prompt_tokens,
             "completion_tokens": usage.completion_tokens,
             "total_tokens": usage.total_tokens,
             "request_count": usage.request_count,
+            "used_requests": route.used_requests,
             "available": route.available,
         }
         rows.append(row)
@@ -81,6 +84,8 @@ def usage_page(request: Request) -> HTMLResponse:
                 "endpoint": route.endpoint,
                 "key_id": route.key_id,
                 "daily_quota": 0,
+                "daily_request_quota": None,
+                "best_priority": route.priority,
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
                 "total_tokens": 0,
@@ -90,6 +95,10 @@ def usage_page(request: Request) -> HTMLResponse:
             },
         )
         summary["daily_quota"] += route.daily_quota
+        if route.daily_request_quota is not None:
+            current_quota = summary["daily_request_quota"] or 0
+            summary["daily_request_quota"] = max(current_quota, route.daily_request_quota)
+        summary["best_priority"] = min(summary["best_priority"], route.priority)
         summary["prompt_tokens"] += usage.prompt_tokens
         summary["completion_tokens"] += usage.completion_tokens
         summary["total_tokens"] += usage.total_tokens
@@ -158,9 +167,9 @@ def _render_usage_page(
     key_rows = "\n".join(_render_key_row(item) for item in key_summaries)
     model_rows = "\n".join(_render_model_row(item) for item in rows)
     if not key_rows:
-        key_rows = '<tr><td class="empty" colspan="9">No configured API keys.</td></tr>'
+        key_rows = '<tr><td class="empty" colspan="10">No configured API keys.</td></tr>'
     if not model_rows:
-        model_rows = '<tr><td class="empty" colspan="11">No configured models.</td></tr>'
+        model_rows = '<tr><td class="empty" colspan="12">No configured models.</td></tr>'
 
     return f"""<!doctype html>
 <html lang="en">
@@ -382,7 +391,8 @@ def _render_usage_page(
               <th>Endpoint</th>
               <th>Key ID</th>
               <th class="num">Models</th>
-              <th class="num">Requests</th>
+              <th class="num">Priority</th>
+              <th class="num">Requests / Quota</th>
               <th class="num">Prompt</th>
               <th class="num">Completion</th>
               <th class="num">Total / Quota</th>
@@ -408,8 +418,9 @@ def _render_usage_page(
               <th>Key ID</th>
               <th>Model</th>
               <th class="num">Level</th>
+              <th class="num">Priority</th>
               <th class="num">Stage</th>
-              <th class="num">Requests</th>
+              <th class="num">Requests / Quota</th>
               <th class="num">Prompt</th>
               <th class="num">Completion</th>
               <th class="num">Total / Quota</th>
@@ -432,7 +443,8 @@ def _render_key_row(item: dict[str, Any]) -> str:
   <td>{escape(item["endpoint"])}</td>
   <td class="id">{escape(item["key_id"])}</td>
   <td class="num">{_fmt_int(item["available_count"])} / {_fmt_int(item["model_count"])}</td>
-  <td class="num">{_fmt_int(item["request_count"])}</td>
+  <td class="num">{_fmt_int(item["best_priority"])}</td>
+  <td class="num">{_fmt_request_usage(item["request_count"], item["daily_request_quota"])}</td>
   <td class="num">{_fmt_int(item["prompt_tokens"])}</td>
   <td class="num">{_fmt_int(item["completion_tokens"])}</td>
   <td class="num">{_fmt_int(item["total_tokens"])} / {_fmt_int(item["daily_quota"])}</td>
@@ -452,8 +464,9 @@ def _render_model_row(item: dict[str, Any]) -> str:
   <td class="id">{escape(item["key_id"])}</td>
   <td>{escape(item["model_name"])}</td>
   <td class="num">{_fmt_int(item["level"])}</td>
+  <td class="num">{_fmt_int(item["priority"])}</td>
   <td class="num">{escape(str(stage))}</td>
-  <td class="num">{_fmt_int(item["request_count"])}</td>
+  <td class="num">{_fmt_request_usage(item["used_requests"], item["daily_request_quota"])}</td>
   <td class="num">{_fmt_int(item["prompt_tokens"])}</td>
   <td class="num">{_fmt_int(item["completion_tokens"])}</td>
   <td class="num">{_fmt_int(item["total_tokens"])} / {_fmt_int(item["daily_quota"])}</td>
@@ -482,6 +495,12 @@ def _ratio(used_tokens: int, daily_quota: int) -> float:
 
 def _fmt_int(value: int) -> str:
     return f"{value:,}"
+
+
+def _fmt_request_usage(used_requests: int, daily_request_quota: int | None) -> str:
+    if daily_request_quota is None:
+        return _fmt_int(used_requests)
+    return f"{_fmt_int(used_requests)} / {_fmt_int(daily_request_quota)}"
 
 
 def _fmt_pct(value: float) -> str:

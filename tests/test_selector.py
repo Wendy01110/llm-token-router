@@ -19,6 +19,13 @@ class FakeUsageManager:
     def get_usage(self, provider, key_id, model_name, quota_date):
         return self.records.get((provider, key_id, model_name), UsageRecord())
 
+    def get_key_request_count(self, provider, key_id, quota_date):
+        return sum(
+            record.request_count
+            for (record_provider, record_key_id, _), record in self.records.items()
+            if record_provider == provider and record_key_id == key_id
+        )
+
 
 def make_config():
     return AppConfig(
@@ -94,6 +101,31 @@ def test_selector_falls_back_to_lower_level_when_level_exhausted():
     assert selected.model_name == "model-b"
 
 
+def test_selector_falls_back_when_request_quota_is_exhausted():
+    config = make_config()
+    config.model_instances[0] = ModelInstanceConfig(
+        name="model-a",
+        provider="test",
+        level=1,
+        priority=10,
+        keys=[{"key_id": "k1", "daily_quota": 1000, "daily_request_quota": 2}],
+        groups=["general"],
+    )
+    config.model_instances = [config.model_instances[0], config.model_instances[2]]
+    selector = RouteSelector(
+        config,
+        FakeUsageManager(
+            {("test", "k1", "model-a"): UsageRecord(total_tokens=10, request_count=2)}
+        ),
+    )
+
+    selected = selector.select(
+        model="auto", router={"level": 1}, quota_date="2026-05-27"
+    )
+
+    assert selected.model_name == "model-b"
+
+
 def test_selector_raises_when_strict_model_is_exhausted():
     selector = RouteSelector(
         make_config(),
@@ -138,4 +170,5 @@ def test_selector_expands_multiple_keys_from_one_model_instance():
 
     assert selected.key_id == "k2"
     assert selected.daily_quota == 200
+    assert selected.daily_request_quota is None
     assert selected.priority == 20

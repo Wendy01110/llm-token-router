@@ -23,6 +23,8 @@ def test_route_preview_returns_selected_route(app_config, usage_manager, fixed_n
 
     assert response.status_code == 200
     assert response.json()["selected"]["level"] == 1
+    assert response.json()["selected"]["daily_request_quota"] is None
+    assert response.json()["selected"]["used_requests"] == 0
 
 
 def test_usage_page_shows_key_summary_and_model_usage(
@@ -49,3 +51,5 @@ def test_usage_page_shows_key_summary_and_model_usage(
     assert "model-a" in response.text
     assert "20" in response.text
     assert "20.0%" in response.text
+    assert "Priority" in response.text
+    assert "Requests / Quota" in response.text

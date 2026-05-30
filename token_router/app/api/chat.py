@@ -94,15 +94,14 @@ async def chat_completions(
     prompt_tokens = int(usage.get("prompt_tokens") or 0)
     completion_tokens = int(usage.get("completion_tokens") or 0)
     total_tokens = int(usage.get("total_tokens") or prompt_tokens + completion_tokens)
-    if prompt_tokens or completion_tokens:
-        usage_manager.record_usage(
-            provider=selected.provider,
-            key_id=selected.key_id,
-            model_name=selected.model_name,
-            quota_date=quota_date,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-        )
+    usage_manager.record_usage(
+        provider=selected.provider,
+        key_id=selected.key_id,
+        model_name=selected.model_name,
+        quota_date=quota_date,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+    )
 
     latency_ms = int((perf_counter() - started_at) * 1000)
     usage_manager.log_request(

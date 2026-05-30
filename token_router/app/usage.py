@@ -43,6 +43,22 @@ class UsageManager:
             request_count=row["request_count"],
         )
 
+    def get_key_request_count(
+        self, provider: str, key_id: str, quota_date: str
+    ) -> int:
+        with connect(self.db_path) as connection:
+            row = connection.execute(
+                """
+                SELECT COALESCE(SUM(request_count), 0) AS request_count
+                FROM model_usage_daily
+                WHERE provider_name = ?
+                  AND key_id = ?
+                  AND quota_date = ?
+                """,
+                (provider, key_id, quota_date),
+            ).fetchone()
+        return int(row["request_count"])
+
     def record_usage(
         self,
         provider: str,

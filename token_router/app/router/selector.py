@@ -131,7 +131,17 @@ class RouteSelector:
             instance.name,
             quota_date,
         )
-        exhausted = is_exhausted(usage.total_tokens, key_config.daily_quota)
+        key_request_count = self.usage_manager.get_key_request_count(
+            instance.provider,
+            key_config.key_id,
+            quota_date,
+        )
+        token_exhausted = is_exhausted(usage.total_tokens, key_config.daily_quota)
+        request_exhausted = (
+            key_config.daily_request_quota is not None
+            and key_request_count >= key_config.daily_request_quota
+        )
+        exhausted = token_exhausted or request_exhausted
         return SelectedRoute(
             provider=instance.provider,
             endpoint=instance.endpoint,
@@ -139,7 +149,9 @@ class RouteSelector:
             model_name=instance.name,
             level=instance.level,
             daily_quota=key_config.daily_quota,
+            daily_request_quota=key_config.daily_request_quota,
             used_tokens=usage.total_tokens,
+            used_requests=key_request_count,
             usage_ratio=usage_ratio(usage.total_tokens, key_config.daily_quota),
             stage=stage_for_usage(usage.total_tokens, key_config.daily_quota),
             priority=key_config.priority or instance.priority,

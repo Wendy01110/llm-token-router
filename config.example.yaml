@@ -35,23 +35,50 @@ providers:
           - id: volcengine_ark_1
             value: ${ARK_API_KEY}
 
+  openrouter:
+    type: openai_compatible
+    endpoints:
+      api:
+        base_url: ${OPENROUTER_BASE_URL}
+        auth_header: authorization_bearer
+        keys:
+          - id: openrouter_1
+            value: ${OPENROUTER_API_KEY}
+          - id: openrouter_2
+            value: ${OPENROUTER_API_KEY_2}
+
 model_instances:
   - name: ${MIMO_TOKEN_PLAN_MODEL}
     provider: xiaomi_mimo
     endpoint: token_plan
     level: 1
-    priority: 10
     keys:
       - key_id: mimo_token_plan
         daily_quota: 50000000
+        priority: 10
     groups: [coding, general]
 
   - name: ${ARK_MODEL}
     provider: volcengine_ark
     endpoint: api
     level: 2
-    priority: 20
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 50000000
+        priority: 20
     groups: [general, coding, fallback]
+
+  - name: ${OPENROUTER_FREE_MODEL}
+    provider: openrouter
+    endpoint: api
+    level: 5
+    keys:
+      - key_id: openrouter_1
+        daily_quota: 5000000
+        daily_request_quota: 50
+        priority: 100
+      - key_id: openrouter_2
+        daily_quota: 5000000
+        daily_request_quota: 50
+        priority: 110
+    groups: [general, coding, fallback, free]

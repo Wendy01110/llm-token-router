@@ -13,7 +13,7 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-Edit `.env` and set your current Xiaomi MiMo Token/Coding Plan key and Volcengine Ark key:
+Edit `.env` and set your current Xiaomi MiMo Token/Coding Plan key, Volcengine Ark key, and OpenRouter key:
 
 ```bash
 MIMO_TOKEN_PLAN_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
@@ -23,11 +23,19 @@ MIMO_TOKEN_PLAN_MODEL=mimo-v2.5-pro
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARK_API_KEY=...
 ARK_MODEL=doubao-seed-2-0-lite-260215
+
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=...
+OPENROUTER_FREE_MODEL=openrouter/free
 ```
 
 `load_config()` reads `.env` from the same directory as `config.yaml` before resolving `${VAR_NAME}` references. Existing shell environment variables take precedence over values in `.env`.
 
-`config.example.yaml` only enables the two providers above by default.
+`config.example.yaml` enables these providers by default:
+
+- `xiaomi_mimo`
+- `volcengine_ark`
+- `openrouter`
 
 Provider and endpoint are separate:
 
@@ -57,6 +65,56 @@ providers:
 ```
 
 To add another provider later, add a new entry under `providers`, then add one or more `model_instances` pointing at that provider endpoint/key pair. Use `auth_header: authorization_bearer` for normal OpenAI-compatible Bearer auth, or `auth_header: api_key` for providers that expect an `api-key` header.
+
+### OpenRouter Free Fallback
+
+The example config uses OpenRouter's official Free Models Router, `openrouter/free`, instead of enumerating specific `:free` model ids from the model catalog. This keeps the local config stable while OpenRouter's free model list changes.
+
+The OpenRouter model instance is configured as the lowest fallback tier:
+
+```yaml
+model_instances:
+  - name: ${OPENROUTER_FREE_MODEL}
+    provider: openrouter
+    endpoint: api
+    level: 5
+    keys:
+      - key_id: openrouter_1
+        daily_quota: 5000000
+        daily_request_quota: 50
+        priority: 100
+      - key_id: openrouter_2
+        daily_quota: 5000000
+        daily_request_quota: 50
+        priority: 110
+    groups: [general, coding, fallback, free]
+```
+
+OpenRouter requires `Authorization: Bearer <OPENROUTER_API_KEY>`, which maps to `auth_header: authorization_bearer`. Optional OpenRouter attribution headers are not required for routing and are not sent by the current provider adapter.
+
+`daily_request_quota: 50` matches OpenRouter's daily free request limit per key. `priority` is set on each key entry, so the router uses `openrouter_1` first and switches to `openrouter_2` after the first key reaches its request quota.
+
+To force a local request through OpenRouter:
+
+```bash
+curl -s http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openrouter/free",
+    "messages": [{"role": "user", "content": "Reply with OK."}],
+    "router": {
+      "provider": "openrouter",
+      "level": 5,
+      "fallback": false,
+      "debug": true
+    }
+  }'
+```
+
+OpenRouter docs:
+
+- [Free Models Router](https://openrouter.ai/docs/cookbook/get-started/free-models-router-playground)
+- [API Quickstart](https://openrouter.ai/docs/quickstart)
 
 ## Configuration Maintenance
 
@@ -98,10 +156,11 @@ model_instances:
   - name: ${MIMO_TOKEN_PLAN_MODEL}
     provider: xiaomi_mimo
     endpoint: token_plan
-    key_id: mimo_token_plan_2
     level: 1
-    daily_quota: 50000000
-    priority: 10
+    keys:
+      - key_id: mimo_token_plan_2
+        daily_quota: 50000000
+        priority: 10
     groups: [coding, general]
 ```
 
@@ -125,10 +184,11 @@ model_instances:
   - name: new-model-name
     provider: volcengine_ark
     endpoint: api
-    key_id: volcengine_ark_1
     level: 2
-    daily_quota: 10000000
-    priority: 30
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 10000000
+        priority: 30
     groups: [general]
 ```
 
@@ -137,10 +197,11 @@ Fields:
 - `name`: upstream model name sent to the provider.
 - `provider`: supplier name under `providers`.
 - `endpoint`: URL/key pool under that provider.
-- `key_id`: key under that endpoint.
 - `level`: smaller is higher priority; `1` is strongest.
-- `daily_quota`: daily token budget for this model/key instance.
-- `priority`: lower wins within the same level/stage.
+- `keys[].key_id`: key under that endpoint.
+- `keys[].daily_quota`: daily token budget for this model/key instance.
+- `keys[].daily_request_quota`: optional daily request budget for that key.
+- `keys[].priority`: lower wins within the same level/stage.
 - `groups`: optional tags such as `coding`, `general`, `reasoning`, `fallback`.
 
 ### Disable Or Remove A Model

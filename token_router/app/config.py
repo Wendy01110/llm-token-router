@@ -70,6 +70,7 @@ class ProviderConfig(BaseModel):
 class ModelInstanceKeyConfig(BaseModel):
     key_id: str
     daily_quota: int = Field(ge=1)
+    daily_request_quota: int | None = Field(default=None, ge=1)
     priority: int | None = Field(default=None, ge=1)
     enabled: bool = True
 
@@ -103,6 +104,7 @@ class ModelInstanceConfig(BaseModel):
                 ModelInstanceKeyConfig(
                     key_id=key.key_id,
                     daily_quota=key.daily_quota,
+                    daily_request_quota=key.daily_request_quota,
                     priority=key.priority or self.priority,
                     enabled=key.enabled,
                 )
@@ -114,6 +116,7 @@ class ModelInstanceConfig(BaseModel):
             ModelInstanceKeyConfig(
                 key_id=self.key_id,
                 daily_quota=self.daily_quota,
+                daily_request_quota=None,
                 priority=self.priority,
             )
         ]

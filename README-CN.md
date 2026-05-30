@@ -13,7 +13,7 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-编辑 `.env`，填入你当前的小米 MiMo Token/Coding Plan key 和火山方舟 key：
+编辑 `.env`，填入你当前的小米 MiMo Token/Coding Plan key、火山方舟 key 和 OpenRouter key：
 
 ```bash
 MIMO_TOKEN_PLAN_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
@@ -23,14 +23,19 @@ MIMO_TOKEN_PLAN_MODEL=mimo-v2.5-pro
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARK_API_KEY=...
 ARK_MODEL=doubao-seed-2-0-lite-260215
+
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=...
+OPENROUTER_FREE_MODEL=openrouter/free
 ```
 
 `load_config()` 会先读取 `config.yaml` 同目录下的 `.env`，再解析配置里的 `${VAR_NAME}`。如果同名变量已经存在于 shell 环境变量中，shell 里的值优先。
 
-`config.example.yaml` 默认只启用两个供应商：
+`config.example.yaml` 默认启用三个供应商：
 
 - `xiaomi_mimo`
 - `volcengine_ark`
+- `openrouter`
 
 ## 核心概念
 
@@ -65,6 +70,56 @@ providers:
 
 - `auth_header: authorization_bearer`：使用 `Authorization: Bearer <key>`。
 - `auth_header: api_key`：使用 `api-key: <key>`。
+
+## OpenRouter 免费兜底
+
+示例配置使用 OpenRouter 官方的 Free Models Router：`openrouter/free`，而不是把模型页里的具体 `:free` 模型全部列进配置。这样 OpenRouter 免费模型列表变化时，本地配置不需要频繁维护。
+
+OpenRouter 模型实例被放在最低兜底等级：
+
+```yaml
+model_instances:
+  - name: ${OPENROUTER_FREE_MODEL}
+    provider: openrouter
+    endpoint: api
+    level: 5
+    keys:
+      - key_id: openrouter_1
+        daily_quota: 5000000
+        daily_request_quota: 50
+        priority: 100
+      - key_id: openrouter_2
+        daily_quota: 5000000
+        daily_request_quota: 50
+        priority: 110
+    groups: [general, coding, fallback, free]
+```
+
+OpenRouter 使用 `Authorization: Bearer <OPENROUTER_API_KEY>`，对应配置里的 `auth_header: authorization_bearer`。OpenRouter 的可选 attribution headers 不是路由必需项，当前 provider adapter 不发送这些可选 header。
+
+`daily_request_quota: 50` 对应 OpenRouter 免费模型每个 key 每天 50 次请求限制。`priority` 放在 key 条目上，所以 router 会先用 `openrouter_1`，第一个 key 达到请求额度后再切到 `openrouter_2`。
+
+如果想强制本地请求走 OpenRouter：
+
+```bash
+curl -s http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openrouter/free",
+    "messages": [{"role": "user", "content": "Reply with OK."}],
+    "router": {
+      "provider": "openrouter",
+      "level": 5,
+      "fallback": false,
+      "debug": true
+    }
+  }'
+```
+
+OpenRouter 文档：
+
+- [Free Models Router](https://openrouter.ai/docs/cookbook/get-started/free-models-router-playground)
+- [API Quickstart](https://openrouter.ai/docs/quickstart)
 
 ## 启动服务
 
@@ -264,10 +319,11 @@ model_instances:
   - name: ${MIMO_TOKEN_PLAN_MODEL}
     provider: xiaomi_mimo
     endpoint: token_plan
-    key_id: mimo_token_plan_2
     level: 1
-    daily_quota: 50000000
-    priority: 10
+    keys:
+      - key_id: mimo_token_plan_2
+        daily_quota: 50000000
+        priority: 10
     groups: [coding, general]
 ```
 
@@ -291,10 +347,11 @@ model_instances:
   - name: new-model-name
     provider: volcengine_ark
     endpoint: api
-    key_id: volcengine_ark_1
     level: 2
-    daily_quota: 10000000
-    priority: 30
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 10000000
+        priority: 30
     groups: [general]
 ```
 
@@ -303,10 +360,11 @@ model_instances:
 - `name`：上游平台真实模型名。
 - `provider`：`providers` 下面的供应商名。
 - `endpoint`：该供应商下面的 URL/key 池。
-- `key_id`：该 endpoint 下面的 key。
 - `level`：等级，数字越小优先级越高，`1` 最高。
-- `daily_quota`：这个模型实例每天可用 token 额度。
-- `priority`：同等级、同阶段内的排序，数字越小越优先。
+- `keys[].key_id`：该 endpoint 下面的 key。
+- `keys[].daily_quota`：这个模型/key 实例每天可用 token 额度。
+- `keys[].daily_request_quota`：可选的每日请求次数额度。
+- `keys[].priority`：同等级、同阶段内的排序，数字越小越优先。
 - `groups`：可选标签，例如 `coding`、`general`、`reasoning`、`fallback`。
 
 ### 禁用或删除模型

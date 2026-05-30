@@ -28,6 +28,22 @@ class FakeProvider:
         }
 
 
+class FakeProviderWithoutUsage:
+    async def chat_completion(self, provider_config, api_key, payload):
+        return {
+            "id": "chatcmpl-no-usage",
+            "object": "chat.completion",
+            "model": "model-a",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+
 def test_chat_endpoint_routes_and_records_usage(
     app_config, usage_manager, fixed_now
 ):
@@ -52,3 +68,29 @@ def test_chat_endpoint_routes_and_records_usage(
     assert response.json()["model"] == "model-a"
     usage = usage_manager.get_usage("test", "k1", "model-a", "2026-05-27")
     assert usage.total_tokens == 5
+
+
+def test_chat_endpoint_counts_successful_request_without_usage(
+    app_config, usage_manager, fixed_now
+):
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=FakeProviderWithoutUsage(),
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hello"}],
+            "router": {"level": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    usage = usage_manager.get_usage("test", "k1", "model-a", "2026-05-27")
+    assert usage.total_tokens == 0
+    assert usage.request_count == 1

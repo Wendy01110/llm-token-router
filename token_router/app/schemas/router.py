@@ -11,7 +11,9 @@ class SelectedRoute:
     model_name: str
     level: int
     daily_quota: int
+    daily_request_quota: int | None
     used_tokens: int
+    used_requests: int
     usage_ratio: float
     stage: int | None
     priority: int
