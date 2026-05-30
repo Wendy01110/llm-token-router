@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 @dataclass(frozen=True)
 class SelectedRoute:
     provider: str
+    endpoint: str
     key_id: str
     model_name: str
     level: int

@@ -6,6 +6,7 @@ import pytest
 from token_router.app.config import (
     ApiKeyConfig,
     AppConfig,
+    EndpointConfig,
     ModelInstanceConfig,
     ProviderConfig,
     RefreshConfig,
@@ -32,14 +33,19 @@ def app_config():
         providers={
             "test": ProviderConfig(
                 type="openai_compatible",
-                base_url="https://example.test/v1",
-                keys=[ApiKeyConfig(id="k1", value="sk-1")],
+                endpoints={
+                    "api": EndpointConfig(
+                        base_url="https://example.test/v1",
+                        keys=[ApiKeyConfig(id="k1", value="sk-1")],
+                    )
+                },
             )
         },
         model_instances=[
             ModelInstanceConfig(
                 name="model-a",
                 provider="test",
+                endpoint="api",
                 key_id="k1",
                 level=1,
                 daily_quota=100,

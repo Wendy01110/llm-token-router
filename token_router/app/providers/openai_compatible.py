@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from token_router.app.config import ApiKeyConfig, ProviderConfig
+from token_router.app.config import ApiKeyConfig, EndpointConfig, ProviderConfig
 
 
 class OpenAICompatibleProvider:
@@ -13,7 +13,7 @@ class OpenAICompatibleProvider:
 
     async def chat_completion(
         self,
-        provider_config: ProviderConfig,
+        provider_config: EndpointConfig | ProviderConfig,
         api_key: ApiKeyConfig,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
@@ -25,7 +25,7 @@ class OpenAICompatibleProvider:
             return response.json()
 
     def _headers(
-        self, provider_config: ProviderConfig, api_key: ApiKeyConfig
+        self, provider_config: EndpointConfig | ProviderConfig, api_key: ApiKeyConfig
     ) -> dict[str, str]:
         if provider_config.auth_header == "api_key":
             return {"api-key": api_key.value}

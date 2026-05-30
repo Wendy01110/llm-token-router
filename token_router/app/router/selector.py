@@ -89,6 +89,7 @@ class RouteSelector:
                 route.priority,
                 route.usage_ratio,
                 route.provider,
+                route.endpoint,
                 route.key_id,
                 route.model_name,
             )
@@ -124,6 +125,7 @@ class RouteSelector:
         exhausted = is_exhausted(usage.total_tokens, instance.daily_quota)
         return SelectedRoute(
             provider=instance.provider,
+            endpoint=instance.endpoint,
             key_id=instance.key_id,
             model_name=instance.name,
             level=instance.level,

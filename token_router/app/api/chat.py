@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from token_router.app.config import ApiKeyConfig, AppConfig
+from token_router.app.config import ApiKeyConfig, AppConfig, EndpointConfig
 from token_router.app.router.quota import quota_date_for
 from token_router.app.router.selector import NoAvailableModelError, RouteSelector
 from token_router.app.schemas.chat import ChatCompletionRequest
@@ -25,8 +25,8 @@ def _get_config(request: Request) -> AppConfig:
     return config
 
 
-def _find_api_key(config: AppConfig, provider: str, key_id: str) -> ApiKeyConfig:
-    for api_key in config.providers[provider].keys:
+def _find_api_key(endpoint_config: EndpointConfig, key_id: str) -> ApiKeyConfig:
+    for api_key in endpoint_config.keys:
         if api_key.id == key_id:
             return api_key
     raise HTTPException(status_code=500, detail="selected API key is not configured")
@@ -56,7 +56,8 @@ async def chat_completions(
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     provider_config = config.providers[selected.provider]
-    api_key = _find_api_key(config, selected.provider, selected.key_id)
+    endpoint_config = provider_config.get_endpoint(selected.endpoint)
+    api_key = _find_api_key(endpoint_config, selected.key_id)
     outgoing_payload = request_payload.model_dump(exclude_none=True)
     outgoing_payload["model"] = selected.model_name
     outgoing_payload.pop("router", None)
@@ -65,7 +66,7 @@ async def chat_completions(
     started_at = perf_counter()
     try:
         upstream_response: dict[str, Any] = await request.app.state.provider.chat_completion(
-            provider_config,
+            endpoint_config,
             api_key,
             outgoing_payload,
         )
@@ -122,6 +123,7 @@ async def chat_completions(
     if request_payload.router.get("debug"):
         headers = {
             "X-Router-Provider": selected.provider,
+            "X-Router-Endpoint": selected.endpoint,
             "X-Router-Key-Id": selected.key_id,
             "X-Router-Model": selected.model_name,
             "X-Router-Level": str(selected.level),
