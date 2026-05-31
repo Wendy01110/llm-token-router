@@ -26,6 +26,7 @@ ARK_MODEL=doubao-seed-2-0-lite-260215
 
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=...
+OPENROUTER_API_KEY_2=...
 OPENROUTER_FREE_MODEL=openrouter/free
 ```
 
@@ -90,7 +91,7 @@ model_instances:
     groups: [general, coding, fallback, free]
 ```
 
-OpenRouter requires `Authorization: Bearer <OPENROUTER_API_KEY>`, which maps to `auth_header: authorization_bearer`. Optional OpenRouter attribution headers are not required for routing and are not sent by the current provider adapter.
+OpenRouter requires `Authorization: Bearer <key>`, which maps to `auth_header: authorization_bearer`. The default config defines `openrouter_1` from `OPENROUTER_API_KEY` and `openrouter_2` from `OPENROUTER_API_KEY_2`. Optional OpenRouter attribution headers are not required for routing and are not sent by the current provider adapter.
 
 `daily_request_quota: 50` matches OpenRouter's daily free request limit per key. `priority` is set on each key entry, so the router uses `openrouter_1` first and switches to `openrouter_2` after the first key reaches its request quota.
 
@@ -123,7 +124,7 @@ Local configuration lives in:
 - `config.yaml`: providers, endpoints, model instances, quota and routing settings.
 - `.env`: real URLs, API keys, and model names referenced by `${VAR_NAME}`.
 
-Keep both files local. They are ignored by Git.
+`config.yaml` can be versioned when it contains only non-secret values and `${VAR_NAME}` references. Keep `.env` local and ignored by Git because it contains real keys.
 
 After changing either file, restart `uvicorn` so the app reloads the config.
 
@@ -227,6 +228,7 @@ Add the provider endpoint and key:
 providers:
   new_supplier:
     type: openai_compatible
+    stream_usage_mode: parse_only
     endpoints:
       api:
         base_url: ${NEW_SUPPLIER_BASE_URL}
@@ -244,6 +246,8 @@ NEW_SUPPLIER_API_KEY=sk-...
 ```
 
 Then add model instances that point at `new_supplier/api/new_supplier_1`.
+
+`stream_usage_mode` controls only streaming usage accounting for requests where the client sends `stream: true`. It does not force streaming. Set it at provider level for a default, and override it under an endpoint when one endpoint behaves differently.
 
 ### Add A New URL Under An Existing Supplier
 
@@ -393,6 +397,32 @@ curl -s http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
+### Streaming
+
+When the client sends `stream: true`, the router returns OpenAI-compatible SSE as `text/event-stream` and forwards upstream `data:` frames to the client. Usage is recorded from the latest non-null streaming `usage` chunk when the provider emits one. If no usage appears before the stream ends, the request count is still recorded and token usage is recorded as zero.
+
+```bash
+curl --no-buffer http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Reply with OK."}],
+    "stream": true,
+    "router": {
+      "level": 1,
+      "provider": "auto",
+      "fallback": true,
+      "debug": true
+    }
+  }'
+```
+
+Success signal:
+
+- The response content type starts with `text/event-stream`.
+- The output contains `data:` frames and ends with `data: [DONE]`.
+- `/admin/usage` shows the selected key request count incrementing.
+
 ## OpenAI SDK Example
 
 After starting the local router, test the OpenAI-compatible endpoint with the OpenAI Python SDK. The script calls local `http://127.0.0.1:8000/v1/chat/completions`, then prints the model response, usage, and `X-Router-*` headers.
@@ -459,7 +489,6 @@ http://127.0.0.1:8000/admin/usage
 
 ## MVP Limits
 
-- Streaming responses are not supported yet.
 - Provider adapters assume OpenAI-compatible APIs.
 - API keys are loaded from local config/environment variables.
 - There is no web UI, user auth, Redis locking, or retry/cooldown policy in this version.

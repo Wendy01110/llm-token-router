@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -23,6 +24,20 @@ class OpenAICompatibleProvider:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
+
+    async def chat_completion_stream(
+        self,
+        provider_config: EndpointConfig | ProviderConfig,
+        api_key: ApiKeyConfig,
+        payload: dict[str, Any],
+    ) -> AsyncIterator[bytes]:
+        url = f"{provider_config.base_url.rstrip('/')}/chat/completions"
+        headers = self._headers(provider_config, api_key)
+        async with httpx.AsyncClient(timeout=120, transport=self.transport) as client:
+            async with client.stream("POST", url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    yield chunk
 
     def _headers(
         self, provider_config: EndpointConfig | ProviderConfig, api_key: ApiKeyConfig

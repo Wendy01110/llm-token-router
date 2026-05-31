@@ -2,7 +2,7 @@
 
 本项目是一个本地自用的 LLM 网关，用来把 OpenAI 兼容的 Chat Completions 请求，按模型等级、每日 token 配额和 25% 用量阶段路由到不同模型实例。
 
-当前 MVP 目标是本地个人使用，不包含 Web 管理后台、用户鉴权、Redis 锁、复杂重试和流式响应。
+当前 MVP 目标是本地个人使用，不包含 Web 管理后台、用户鉴权、Redis 锁和复杂重试。
 
 ## 快速开始
 
@@ -26,6 +26,7 @@ ARK_MODEL=doubao-seed-2-0-lite-260215
 
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=...
+OPENROUTER_API_KEY_2=...
 OPENROUTER_FREE_MODEL=openrouter/free
 ```
 
@@ -36,6 +37,8 @@ OPENROUTER_FREE_MODEL=openrouter/free
 - `xiaomi_mimo`
 - `volcengine_ark`
 - `openrouter`
+
+其它项目接入本地 router 时，可参考 [其它项目调用指南](docs/client-integration-cn.md)。
 
 ## 核心概念
 
@@ -95,7 +98,7 @@ model_instances:
     groups: [general, coding, fallback, free]
 ```
 
-OpenRouter 使用 `Authorization: Bearer <OPENROUTER_API_KEY>`，对应配置里的 `auth_header: authorization_bearer`。OpenRouter 的可选 attribution headers 不是路由必需项，当前 provider adapter 不发送这些可选 header。
+OpenRouter 使用 `Authorization: Bearer <key>`，对应配置里的 `auth_header: authorization_bearer`。默认配置用 `OPENROUTER_API_KEY` 生成 `openrouter_1`，用 `OPENROUTER_API_KEY_2` 生成 `openrouter_2`。OpenRouter 的可选 attribution headers 不是路由必需项，当前 provider adapter 不发送这些可选 header。
 
 `daily_request_quota: 50` 对应 OpenRouter 免费模型每个 key 每天 50 次请求限制。`priority` 放在 key 条目上，所以 router 会先用 `openrouter_1`，第一个 key 达到请求额度后再切到 `openrouter_2`。
 
@@ -227,6 +230,32 @@ curl -s http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
+### 流式响应
+
+当客户端传 `stream: true` 时，router 会以 `text/event-stream` 返回 OpenAI 兼容 SSE，并把上游 `data:` frame 转发给客户端。若上游 stream 中出现非空 `usage`，router 会用最后一次看到的 usage 记录 token 用量；如果 stream 结束前没有 usage，也会记录 1 次请求，token 用量记 0。
+
+```bash
+curl --no-buffer http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Reply with OK."}],
+    "stream": true,
+    "router": {
+      "level": 1,
+      "provider": "auto",
+      "fallback": true,
+      "debug": true
+    }
+  }'
+```
+
+成功信号：
+
+- 响应 `content-type` 以 `text/event-stream` 开头。
+- 输出包含 `data:` frame，并以 `data: [DONE]` 结束。
+- `/admin/usage` 中对应 key 的请求次数会增加。
+
 ## OpenAI SDK 调用示例
 
 启动本地 router 后，可以用 OpenAI Python SDK 直接测试 OpenAI 兼容接口。这个脚本会请求本地 `http://127.0.0.1:8000/v1/chat/completions`，再打印模型回复、usage 和 `X-Router-*` headers。
@@ -286,7 +315,7 @@ tail -n 80 logs/router.log
 - `config.yaml`：供应商、endpoint、模型实例、额度和路由配置。
 - `.env`：真实 URL、API key 和模型名。
 
-这两个文件都只保留在本地，已经被 Git 忽略。
+`config.yaml` 只包含非敏感值和 `${VAR_NAME}` 引用时可以纳入版本管理。`.env` 里放真实 key，需要继续保留在本地并被 Git 忽略。
 
 每次修改 `config.yaml` 或 `.env` 后，需要重启 `uvicorn`，让服务重新加载配置。
 
@@ -390,6 +419,7 @@ model_instances:
 providers:
   new_supplier:
     type: openai_compatible
+    stream_usage_mode: parse_only
     endpoints:
       api:
         base_url: ${NEW_SUPPLIER_BASE_URL}
@@ -407,6 +437,8 @@ NEW_SUPPLIER_API_KEY=sk-...
 ```
 
 最后增加指向 `new_supplier/api/new_supplier_1` 的模型实例。
+
+`stream_usage_mode` 只控制客户端传 `stream: true` 时如何做流式 usage 记账，不会强制开启 stream。可以放在 provider 上作为默认值；如果某个 endpoint 行为不同，再在 endpoint 下覆盖。
 
 ### 给已有供应商增加新 URL
 
@@ -466,7 +498,6 @@ http://127.0.0.1:8000/admin/usage
 
 ## 当前限制
 
-- 暂不支持流式响应。
 - Provider adapter 默认面向 OpenAI 兼容接口。
 - API key 从本地 `.env` 和 `config.yaml` 读取。
 - 暂无 Web UI、用户鉴权、Redis 锁、失败重试和 cooldown 策略。

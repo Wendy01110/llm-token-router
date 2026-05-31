@@ -14,6 +14,12 @@ Scope:
 
 No real provider calls were run for this document. The notes below come from official provider documentation or official SDK/API references, and runtime behavior should still be verified with a small credentialed smoke test before enabling a provider-specific stream strategy by default.
 
+## Implementation Status
+
+The local router implements SSE passthrough for client requests with `stream: true`. It returns `text/event-stream`, forwards upstream `data:` frames, applies provider/endpoint `stream_usage_mode` only for usage-accounting request options, and records usage from the latest non-null streaming `usage` chunk. If no usage chunk appears before the stream ends, the request count is still recorded and token usage is recorded as zero.
+
+Real provider smoke tests remain manual because they require local services, credentials, or external APIs.
+
 ## Overall Router Strategy
 
 For MVP streaming support:

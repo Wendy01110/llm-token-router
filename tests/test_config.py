@@ -128,6 +128,9 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").auth_header == "api_key"
     assert config.providers["volcengine_ark"].get_endpoint("api").auth_header == "authorization_bearer"
     assert config.providers["openrouter"].get_endpoint("api").auth_header == "authorization_bearer"
+    assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").stream_usage_mode == "no_option_usage_chunk"
+    assert config.providers["volcengine_ark"].get_endpoint("api").stream_usage_mode == "ark_include_usage"
+    assert config.providers["openrouter"].get_endpoint("api").stream_usage_mode == "no_option_usage_chunk"
     assert [key.id for key in config.providers["openrouter"].get_endpoint("api").keys] == [
         "openrouter_1",
         "openrouter_2",
@@ -232,3 +235,48 @@ model_instances:
     assert [key.daily_quota for key in key_instances] == [1000, 2000]
     assert [key.daily_request_quota for key in key_instances] == [None, None]
     assert [key.priority for key in key_instances] == [20, 30]
+
+
+def test_provider_stream_usage_mode_defaults_to_endpoints(tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+providers:
+  test:
+    type: openai_compatible
+    stream_usage_mode: openai_include_usage
+    endpoints:
+      defaulted:
+        base_url: https://defaulted.example.test/v1
+        keys:
+          - id: key_one
+            value: sk-one
+      overridden:
+        base_url: https://overridden.example.test/v1
+        stream_usage_mode: no_option_usage_chunk
+        keys:
+          - id: key_two
+            value: sk-two
+model_instances:
+  - name: model-a
+    provider: test
+    endpoint: defaulted
+    level: 1
+    keys:
+      - key_id: key_one
+        daily_quota: 1000
+  - name: model-b
+    provider: test
+    endpoint: overridden
+    level: 1
+    keys:
+      - key_id: key_two
+        daily_quota: 1000
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_file)
+
+    assert config.providers["test"].get_endpoint("defaulted").stream_usage_mode == "openai_include_usage"
+    assert config.providers["test"].get_endpoint("overridden").stream_usage_mode == "no_option_usage_chunk"

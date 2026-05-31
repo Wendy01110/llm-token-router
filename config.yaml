@@ -52,7 +52,7 @@ providers:
             value: ${OPENROUTER_API_KEY_2}
 
 model_instances:
-  - name: ${MIMO_TOKEN_PLAN_MODEL}
+  - name: mimo-v2.5-pro
     provider: xiaomi_mimo
     endpoint: token_plan
     level: 1
@@ -62,15 +62,65 @@ model_instances:
         priority: 10
     groups: [coding, general]
 
-  - name: ${ARK_MODEL}
+  - name: doubao-seed-2-0-pro-260215
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1600000
+        priority: 20
+    groups: [reasoning, general]
+
+  - name: doubao-seed-2-0-code-preview-260215
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1600000
+        priority: 30
+    groups: [reasoning, coding, general]
+
+  - name: volcengine/glm-4-7-251222
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1600000
+        priority: 60
+    groups: [general, fallback]
+
+  - name: volcengine/deepseek-v3-2-251201
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1600000
+        priority: 70
+    groups: [general, coding, fallback]
+
+  - name: doubao-seed-2-0-lite-260428
     provider: volcengine_ark
     endpoint: api
     level: 2
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 50000000
-        priority: 20
-    groups: [general, coding, fallback]
+        daily_quota: 1600000
+        priority: 40
+    groups: [reasoning, general, fallback]
+
+  - name: doubao-seed-2-0-mini-260428
+    provider: volcengine_ark
+    endpoint: api
+    level: 3
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1600000
+        priority: 50
+    groups: [reasoning, general, fallback]
 
   - name: ${OPENROUTER_FREE_MODEL}
     provider: openrouter
@@ -78,11 +128,11 @@ model_instances:
     level: 5
     keys:
       - key_id: openrouter_1
-        daily_quota: 5000000
-        daily_request_quota: 50
+        daily_quota: 4000000
+        daily_request_quota: 40
         priority: 100
       - key_id: openrouter_2
-        daily_quota: 5000000
-        daily_request_quota: 50
+        daily_quota: 4500000
+        daily_request_quota: 45
         priority: 110
     groups: [general, coding, fallback, free]

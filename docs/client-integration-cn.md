@@ -1,0 +1,405 @@
+# 其它项目调用指南
+
+本文面向调用方项目，说明如何把本地 `llm-token-router` 当作 OpenAI-compatible Chat Completions 服务使用。
+
+## 前提
+
+router 服务需要先在本机启动：
+
+```bash
+cd /Users/wendy/code/python/llm-token-router
+conda activate llm_token_router
+uvicorn token_router.app.main:app --host 127.0.0.1 --port 8000
+```
+
+调用方使用的基础地址：
+
+```text
+http://127.0.0.1:8000/v1
+```
+
+健康检查：
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/health
+```
+
+成功时返回：
+
+```json
+{"status":"ok"}
+```
+
+当前 MVP 不校验调用方传入的 API key。OpenAI SDK 通常要求设置 `api_key`，调用方传任意占位值即可。真实上游供应商 key 由 router 自己从 `.env` 和 `config.yaml` 读取。
+
+不要把当前服务直接暴露到不可信网络；它目前是本地自用网关，没有客户端鉴权。
+
+## 最小 HTTP 调用
+
+非流式请求：
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [
+      {"role": "user", "content": "用一句话解释什么是 GraphRAG。"}
+    ]
+  }'
+```
+
+`model: "auto"` 表示让 router 根据当前配置、等级、配额和优先级选择模型。
+
+## OpenAI Python SDK
+
+调用方项目安装 OpenAI SDK：
+
+```bash
+python -m pip install openai
+```
+
+非流式：
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/v1",
+    api_key="local-router-client",
+)
+
+response = client.chat.completions.create(
+    model="auto",
+    messages=[
+        {"role": "user", "content": "用一句话解释什么是 GraphRAG。"},
+    ],
+)
+
+print(response.choices[0].message.content)
+print(response.usage)
+```
+
+强制走指定 provider：
+
+```python
+response = client.chat.completions.create(
+    model="mimo-v2.5-pro",
+    messages=[
+        {"role": "user", "content": "Reply with OK only."},
+    ],
+    extra_body={
+        "router": {
+            "provider": "xiaomi_mimo",
+            "level": 1,
+            "fallback": False,
+        }
+    },
+)
+```
+
+流式：
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/v1",
+    api_key="local-router-client",
+)
+
+usage = None
+stream = client.chat.completions.create(
+    model="auto",
+    messages=[
+        {"role": "user", "content": "用三句话介绍这个项目。"},
+    ],
+    stream=True,
+    extra_body={
+        "router": {
+            "level": 1,
+            "fallback": True,
+        }
+    },
+)
+
+for chunk in stream:
+    if chunk.usage is not None:
+        usage = chunk.usage
+    if not chunk.choices:
+        continue
+    delta = chunk.choices[0].delta
+    if delta.content:
+        print(delta.content, end="", flush=True)
+
+print()
+print("usage:", usage)
+```
+
+流式响应中可能出现 `choices: []` 的 usage chunk，调用方需要先判断 `chunk.choices` 是否为空。
+
+## OpenAI JavaScript SDK
+
+调用方项目安装 SDK：
+
+```bash
+npm install openai
+```
+
+非流式：
+
+```js
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://127.0.0.1:8000/v1",
+  apiKey: "local-router-client",
+});
+
+const response = await client.chat.completions.create({
+  model: "auto",
+  messages: [
+    { role: "user", content: "用一句话解释什么是 GraphRAG。" },
+  ],
+});
+
+console.log(response.choices[0]?.message?.content);
+console.log(response.usage);
+```
+
+流式：
+
+```js
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://127.0.0.1:8000/v1",
+  apiKey: "local-router-client",
+});
+
+let usage = null;
+const stream = await client.chat.completions.create({
+  model: "auto",
+  messages: [
+    { role: "user", content: "用三句话介绍这个项目。" },
+  ],
+  stream: true,
+  router: {
+    level: 1,
+    fallback: true,
+  },
+});
+
+for await (const chunk of stream) {
+  if (chunk.usage) {
+    usage = chunk.usage;
+  }
+  const content = chunk.choices?.[0]?.delta?.content;
+  if (content) {
+    process.stdout.write(content);
+  }
+}
+
+console.log("\nusage:", usage);
+```
+
+如果当前 SDK 类型定义不允许直接传 `router`，可以改用普通 `fetch`，或者按 SDK 支持方式传额外 body 字段。
+
+## 普通 fetch 调用
+
+```js
+const response = await fetch("http://127.0.0.1:8000/v1/chat/completions", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    model: "auto",
+    messages: [
+      { role: "user", content: "用一句话解释什么是 GraphRAG。" },
+    ],
+    router: {
+      level: 1,
+      fallback: true,
+    },
+  }),
+});
+
+if (!response.ok) {
+  throw new Error(`${response.status} ${await response.text()}`);
+}
+
+const data = await response.json();
+console.log(data.choices?.[0]?.message?.content);
+```
+
+## 流式 HTTP 调用
+
+router 会把上游 SSE 原样转发给客户端：
+
+```bash
+curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Reply with OK."}],
+    "stream": true,
+    "router": {
+      "level": 1,
+      "fallback": true
+    }
+  }'
+```
+
+成功信号：
+
+- 响应 `content-type` 以 `text/event-stream` 开头。
+- 输出包含多段 `data: {...}`。
+- 最后以 `data: [DONE]` 结束。
+
+如果上游 provider 在 stream 里返回 usage，router 会在 stream 结束后记录 token 用量；如果没有 usage，router 仍记录请求次数，token 记 0。
+
+## router 参数
+
+请求体里的 `router` 字段只被本地 router 使用，不会转发给上游 provider。
+
+| 字段 | 示例 | 含义 |
+| --- | --- | --- |
+| `provider` | `"xiaomi_mimo"` | 指定供应商；省略或传 `"auto"` 表示不限供应商。 |
+| `level` | `1` | 起始模型等级；数值越小优先级越高。 |
+| `fallback` | `true` | 当前等级无可用模型时，是否向后续等级降级。 |
+| `max_fallback_level` | `5` | 允许降级到的最高等级编号。 |
+| `strict_model` | `true` | 指定模型不可用时，是否禁止 fallback 到其它模型。 |
+| `model_group` | `"coding"` | 只选择带有该 group 的模型实例。 |
+| `debug` | `true` | 返回 `X-Router-*` 调试响应头。 |
+
+常用模式：
+
+```json
+{
+  "model": "auto",
+  "router": {
+    "level": 1,
+    "fallback": true
+  }
+}
+```
+
+强制走 MiMo：
+
+```json
+{
+  "model": "mimo-v2.5-pro",
+  "router": {
+    "provider": "xiaomi_mimo",
+    "level": 1,
+    "fallback": false,
+    "strict_model": true
+  }
+}
+```
+
+强制走 Ark mini：
+
+```json
+{
+  "model": "doubao-seed-2-0-mini-260428",
+  "router": {
+    "provider": "volcengine_ark",
+    "level": 3,
+    "fallback": false,
+    "strict_model": true
+  }
+}
+```
+
+强制走 OpenRouter 免费兜底：
+
+```json
+{
+  "model": "openrouter/free",
+  "router": {
+    "provider": "openrouter",
+    "level": 5,
+    "fallback": false,
+    "strict_model": true
+  }
+}
+```
+
+## 调试路由结果
+
+在请求里打开 debug：
+
+```json
+{
+  "router": {
+    "debug": true
+  }
+}
+```
+
+响应头会包含：
+
+```text
+X-Router-Provider
+X-Router-Endpoint
+X-Router-Key-Id
+X-Router-Model
+X-Router-Level
+X-Router-Usage-Ratio
+X-Router-Stage
+```
+
+也可以在不真实调用上游的情况下预览路由：
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/admin/route/preview \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "router": {
+      "level": 1,
+      "fallback": true
+    }
+  }'
+```
+
+## 错误处理
+
+调用方至少处理这些状态：
+
+- `200`：请求成功。
+- `429`：router 没有可用模型实例，通常是配额耗尽、request quota 达到上限，或筛选条件过窄。
+- 上游状态码，例如 `400`、`401`、`403`、`500`：router 会把非流式上游 HTTP 错误转换成同状态码的错误响应。
+
+流式请求的残余限制：如果上游在 stream 开始后才报错，HTTP 响应可能已经以 `text/event-stream` 开始，无法再优雅改成 JSON 错误。调用方应同时处理 stream 中断、连接关闭和非 2xx 初始响应。
+
+## 用量查看
+
+查看当前模型和配额状态：
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/admin/models
+```
+
+打开本地用量页：
+
+```text
+http://127.0.0.1:8000/admin/usage
+```
+
+直接查 SQLite：
+
+```bash
+sqlite3 token_router.sqlite3 \
+'SELECT provider_name, key_id, model_name, prompt_tokens, completion_tokens, total_tokens, request_count
+ FROM model_usage_daily
+ ORDER BY updated_at DESC;'
+```
+
+## 接入建议
+
+- 调用方默认使用 `model: "auto"`，让 router 负责供应商选择和 fallback。
+- 只有在需要压测、定位问题或控制成本时，再指定 `provider` / `level` / `strict_model`。
+- 生产脚本里不要依赖 debug headers；debug headers 主要用于人工排查。
+- stream 调用方必须支持 `choices: []` 的 final usage chunk。
+- 当前服务适合作为同机或可信内网依赖，不适合裸露到公网。

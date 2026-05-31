@@ -12,6 +12,14 @@ from pydantic import BaseModel, Field, model_validator
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
+StreamUsageMode = Literal[
+    "openai_include_usage",
+    "ark_include_usage",
+    "no_option_usage_chunk",
+    "final_chunk_usage",
+    "parse_only",
+]
+
 
 class RefreshConfig(BaseModel):
     timezone: str = "Asia/Shanghai"
@@ -32,6 +40,7 @@ class ApiKeyConfig(BaseModel):
 class EndpointConfig(BaseModel):
     base_url: str
     auth_header: Literal["authorization_bearer", "api_key"] = "authorization_bearer"
+    stream_usage_mode: StreamUsageMode | None = None
     keys: list[ApiKeyConfig]
 
 
@@ -39,6 +48,7 @@ class ProviderConfig(BaseModel):
     type: str = "openai_compatible"
     base_url: str | None = None
     auth_header: Literal["authorization_bearer", "api_key"] = "authorization_bearer"
+    stream_usage_mode: StreamUsageMode = "parse_only"
     keys: list[ApiKeyConfig] = Field(default_factory=list)
     endpoints: dict[str, EndpointConfig] = Field(default_factory=dict)
 
@@ -53,9 +63,14 @@ class ProviderConfig(BaseModel):
     def get_endpoint(self, endpoint: str) -> EndpointConfig:
         if self.endpoints:
             try:
-                return self.endpoints[endpoint]
+                endpoint_config = self.endpoints[endpoint]
             except KeyError as exc:
                 raise KeyError(f"unknown endpoint {endpoint!r}") from exc
+            if endpoint_config.stream_usage_mode is None:
+                return endpoint_config.model_copy(
+                    update={"stream_usage_mode": self.stream_usage_mode}
+                )
+            return endpoint_config
         if endpoint != "default":
             raise KeyError(f"unknown endpoint {endpoint!r}")
         if self.base_url is None:
@@ -63,6 +78,7 @@ class ProviderConfig(BaseModel):
         return EndpointConfig(
             base_url=self.base_url,
             auth_header=self.auth_header,
+            stream_usage_mode=self.stream_usage_mode,
             keys=self.keys,
         )
 

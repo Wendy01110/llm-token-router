@@ -57,3 +57,43 @@ def test_provider_uses_authorization_bearer_by_default():
     )
 
     assert captured["headers"]["authorization"] == "Bearer ark-test"
+
+
+async def _collect_stream(stream):
+    return [chunk async for chunk in stream]
+
+
+def test_provider_streams_raw_sse_bytes():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["headers"] = request.headers
+        captured["body"] = request.read()
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=(
+                b'data: {"choices":[{"delta":{"content":"OK"}}],"usage":null}\n\n'
+                b"data: [DONE]\n\n"
+            ),
+        )
+
+    provider = OpenAICompatibleProvider(transport=httpx.MockTransport(handler))
+    config = ProviderConfig(
+        type="openai_compatible",
+        base_url="https://example.test/v1",
+        keys=[ApiKeyConfig(id="test", value="sk-test")],
+    )
+
+    chunks = asyncio.run(
+        _collect_stream(
+            provider.chat_completion_stream(
+                config,
+                config.keys[0],
+                {"model": "model-a", "stream": True},
+            )
+        )
+    )
+
+    assert b"".join(chunks).endswith(b"data: [DONE]\n\n")
+    assert captured["headers"]["authorization"] == "Bearer sk-test"
