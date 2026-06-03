@@ -82,7 +82,7 @@ model_instances:
         priority: 30
     groups: [reasoning, coding, general]
 
-  - name: volcengine/glm-4-7-251222
+  - name: glm-4-7-251222
     provider: volcengine_ark
     endpoint: api
     level: 1
@@ -92,7 +92,7 @@ model_instances:
         priority: 60
     groups: [general, fallback]
 
-  - name: volcengine/deepseek-v3-2-251201
+  - name: deepseek-v3-2-251201
     provider: volcengine_ark
     endpoint: api
     level: 1

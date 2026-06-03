@@ -6,14 +6,17 @@ The MVP is designed for personal local use.
 
 ## Setup
 
+Use a project-local virtual environment. The current `.venv` was tested with
+Python 3.13.13; the package requires Python 3.11 or newer.
+
 ```bash
-conda activate llm_token_router
+. .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-Edit `.env` and set your current Xiaomi MiMo Token/Coding Plan key, Volcengine Ark key, and OpenRouter key:
+Edit `.env` and set your current Xiaomi MiMo Token/Coding Plan key, Volcengine Ark key, OpenRouter key, and Tavily key:
 
 ```bash
 MIMO_TOKEN_PLAN_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
@@ -28,6 +31,8 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=...
 OPENROUTER_API_KEY_2=...
 OPENROUTER_FREE_MODEL=openrouter/free
+
+TAVILY_API_KEY=tvly-...
 ```
 
 `load_config()` reads `.env` from the same directory as `config.yaml` before resolving `${VAR_NAME}` references. Existing shell environment variables take precedence over values in `.env`.
@@ -310,15 +315,15 @@ http://127.0.0.1:8000/admin/usage
 Run in the foreground during development so logs stay visible:
 
 ```bash
-conda activate llm_token_router
-uvicorn token_router.app.main:app --reload
+. .venv/bin/activate
+python -m uvicorn token_router.app.main:app --reload
 ```
 
 For local background use, run this from the project root:
 
 ```bash
 mkdir -p logs
-nohup /opt/miniconda3/envs/llm_token_router/bin/python -m uvicorn token_router.app.main:app \
+nohup .venv/bin/python -m uvicorn token_router.app.main:app \
   --host 127.0.0.1 \
   --port 8000 \
   > logs/router.log 2>&1 &
@@ -428,8 +433,7 @@ Success signal:
 After starting the local router, test the OpenAI-compatible endpoint with the OpenAI Python SDK. The script calls local `http://127.0.0.1:8000/v1/chat/completions`, then prints the model response, usage, and `X-Router-*` headers.
 
 ```bash
-conda activate llm_token_router
-python -m pip install -e ".[dev]"
+. .venv/bin/activate
 python examples/openai_chat_test.py
 ```
 
@@ -487,6 +491,34 @@ curl -s http://127.0.0.1:8000/admin/models
 http://127.0.0.1:8000/admin/usage
 ```
 
+## Daily Model Evaluation
+
+The daily evaluator uses fixed Tavily daily-news queries with `topic` set to `general`, `news`, and `finance`, then asks every enabled `model_instance` and `key_id` in `config.yaml` to summarize the same hotspot context.
+
+Run it manually from the project root:
+
+```bash
+. .venv/bin/activate
+python scripts/daily_model_eval.py
+```
+
+Outputs:
+
+- `reports/daily-model-eval/YYYY-MM-DD/report.md`
+- `reports/daily-model-eval/YYYY-MM-DD/results.jsonl`
+- `reports/daily-model-eval/YYYY-MM-DD/tavily.json`
+- `reports/daily-model-eval/latest.json`
+
+Successful model calls are recorded through the existing SQLite usage tables, so the evaluation token usage appears in `/admin/models` and `/admin/usage` and affects later routing. Failed calls are logged in `request_logs` but are not counted against model daily token quota.
+
+Open the latest report in the local router:
+
+```text
+http://127.0.0.1:8000/
+```
+
+The page only reads saved report files. Refreshing it does not call Tavily or any model.
+
 ## MVP Limits
 
 - Provider adapters assume OpenAI-compatible APIs.
@@ -496,6 +528,6 @@ http://127.0.0.1:8000/admin/usage
 ## Tests
 
 ```bash
-conda activate llm_token_router
+. .venv/bin/activate
 python -m pytest -v
 ```

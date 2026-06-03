@@ -6,14 +6,17 @@
 
 ## 快速开始
 
+使用项目根目录下的专用虚拟环境 `.venv`。当前 `.venv` 已用
+Python 3.13.13 验证通过；项目要求 Python 3.11 或更新版本。
+
 ```bash
-conda activate llm_token_router
+. .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-编辑 `.env`，填入你当前的小米 MiMo Token/Coding Plan key、火山方舟 key 和 OpenRouter key：
+编辑 `.env`，填入你当前的小米 MiMo Token/Coding Plan key、火山方舟 key、OpenRouter key 和 Tavily key：
 
 ```bash
 MIMO_TOKEN_PLAN_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
@@ -28,6 +31,8 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=...
 OPENROUTER_API_KEY_2=...
 OPENROUTER_FREE_MODEL=openrouter/free
+
+TAVILY_API_KEY=tvly-...
 ```
 
 `load_config()` 会先读取 `config.yaml` 同目录下的 `.env`，再解析配置里的 `${VAR_NAME}`。如果同名变量已经存在于 shell 环境变量中，shell 里的值优先。
@@ -129,15 +134,15 @@ OpenRouter 文档：
 开发时前台运行，方便直接看日志：
 
 ```bash
-conda activate llm_token_router
-uvicorn token_router.app.main:app --reload
+. .venv/bin/activate
+python -m uvicorn token_router.app.main:app --reload
 ```
 
 本地长期自用时，可以放到后台运行。下面命令需要在项目根目录执行：
 
 ```bash
 mkdir -p logs
-nohup /opt/miniconda3/envs/llm_token_router/bin/python -m uvicorn token_router.app.main:app \
+nohup .venv/bin/python -m uvicorn token_router.app.main:app \
   --host 127.0.0.1 \
   --port 8000 \
   > logs/router.log 2>&1 &
@@ -261,8 +266,7 @@ curl --no-buffer http://127.0.0.1:8000/v1/chat/completions \
 启动本地 router 后，可以用 OpenAI Python SDK 直接测试 OpenAI 兼容接口。这个脚本会请求本地 `http://127.0.0.1:8000/v1/chat/completions`，再打印模型回复、usage 和 `X-Router-*` headers。
 
 ```bash
-conda activate llm_token_router
-python -m pip install -e ".[dev]"
+. .venv/bin/activate
 python examples/openai_chat_test.py
 ```
 
@@ -502,9 +506,37 @@ http://127.0.0.1:8000/admin/usage
 - API key 从本地 `.env` 和 `config.yaml` 读取。
 - 暂无 Web UI、用户鉴权、Redis 锁、失败重试和 cooldown 策略。
 
+## 每日模型质量评测
+
+每日评测会用固定 Tavily query 拉取每日新闻，`topic` 分别为 `general`、`news`、`finance`，再让 `config.yaml` 里所有启用的 `model_instance + key_id` 基于同一批热点材料生成中文总结。
+
+手动运行：
+
+```bash
+. .venv/bin/activate
+python scripts/daily_model_eval.py
+```
+
+输出文件：
+
+- `reports/daily-model-eval/YYYY-MM-DD/report.md`
+- `reports/daily-model-eval/YYYY-MM-DD/results.jsonl`
+- `reports/daily-model-eval/YYYY-MM-DD/tavily.json`
+- `reports/daily-model-eval/latest.json`
+
+成功调用会通过现有 SQLite 用量表计入 Model Instances，所以 `/admin/models`、`/admin/usage` 和后续路由都会看到这部分 token 消耗。失败调用只写入 `request_logs`，不计入每日 token quota。
+
+查看最新日报：
+
+```text
+http://127.0.0.1:8000/
+```
+
+这个页面只读取已保存的日报文件，刷新页面不会调用 Tavily 或模型。
+
 ## 测试
 
 ```bash
-conda activate llm_token_router
+. .venv/bin/activate
 python -m pytest -v
 ```

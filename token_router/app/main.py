@@ -9,7 +9,7 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 
-from token_router.app.api import admin, chat, health
+from token_router.app.api import admin, chat, health, reports
 from token_router.app.config import AppConfig, load_config
 from token_router.app.database import init_db
 from token_router.app.providers.openai_compatible import OpenAICompatibleProvider
@@ -43,6 +43,7 @@ def create_app(
     app.state.now_fn = now_fn or datetime.now
 
     app.include_router(health.router)
+    app.include_router(reports.router)
     app.include_router(admin.router)
     app.include_router(chat.router)
     return app

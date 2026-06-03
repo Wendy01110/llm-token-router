@@ -4,12 +4,12 @@
 
 ## 前提
 
-router 服务需要先在本机启动：
+router 服务默认在后台用 nohup 启动，如未启动，需要先在本机启动：
 
 ```bash
 cd /Users/wendy/code/python/llm-token-router
-conda activate llm_token_router
-uvicorn token_router.app.main:app --host 127.0.0.1 --port 8000
+. .venv/bin/activate
+python -m uvicorn token_router.app.main:app --host 127.0.0.1 --port 8000
 ```
 
 调用方使用的基础地址：
@@ -261,15 +261,15 @@ curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
 
 请求体里的 `router` 字段只被本地 router 使用，不会转发给上游 provider。
 
-| 字段 | 示例 | 含义 |
-| --- | --- | --- |
-| `provider` | `"xiaomi_mimo"` | 指定供应商；省略或传 `"auto"` 表示不限供应商。 |
-| `level` | `1` | 起始模型等级；数值越小优先级越高。 |
-| `fallback` | `true` | 当前等级无可用模型时，是否向后续等级降级。 |
-| `max_fallback_level` | `5` | 允许降级到的最高等级编号。 |
-| `strict_model` | `true` | 指定模型不可用时，是否禁止 fallback 到其它模型。 |
-| `model_group` | `"coding"` | 只选择带有该 group 的模型实例。 |
-| `debug` | `true` | 返回 `X-Router-*` 调试响应头。 |
+| 字段                   | 示例              | 含义                                             |
+| ---------------------- | ----------------- | ------------------------------------------------ |
+| `provider`           | `"xiaomi_mimo"` | 指定供应商；省略或传 `"auto"` 表示不限供应商。 |
+| `level`              | `1`             | 起始模型等级；数值越小优先级越高。               |
+| `fallback`           | `true`          | 当前等级无可用模型时，是否向后续等级降级。       |
+| `max_fallback_level` | `5`             | 允许降级到的最高等级编号。                       |
+| `strict_model`       | `true`          | 指定模型不可用时，是否禁止 fallback 到其它模型。 |
+| `model_group`        | `"coding"`      | 只选择带有该 group 的模型实例。                  |
+| `debug`              | `true`          | 返回 `X-Router-*` 调试响应头。                 |
 
 常用模式：
 
