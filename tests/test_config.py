@@ -115,6 +115,9 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     )
     monkeypatch.setenv("ARK_API_KEY", "ark-test")
     monkeypatch.setenv("ARK_MODEL", "doubao-seed-2-0-lite-260215")
+    monkeypatch.setenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
+    monkeypatch.setenv("AGNES_API_KEY", "agnes-test")
+    monkeypatch.setenv("AGNES_MODEL", "agnes-2.0-flash")
     monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test")
     monkeypatch.setenv("OPENROUTER_API_KEY_2", "or-test-2")
@@ -122,15 +125,27 @@ def test_config_example_uses_current_local_providers(monkeypatch):
 
     config = load_config("config.example.yaml")
 
-    assert set(config.providers) == {"xiaomi_mimo", "volcengine_ark", "openrouter"}
+    assert set(config.providers) == {
+        "xiaomi_mimo",
+        "volcengine_ark",
+        "agnes",
+        "openrouter",
+    }
     assert set(config.providers["xiaomi_mimo"].endpoints) == {"token_plan"}
     assert config.model_instances[0].endpoint == "token_plan"
     assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").auth_header == "api_key"
     assert config.providers["volcengine_ark"].get_endpoint("api").auth_header == "authorization_bearer"
+    assert config.providers["agnes"].get_endpoint("api").base_url == "https://apihub.agnes-ai.com/v1"
+    assert config.providers["agnes"].get_endpoint("api").auth_header == "authorization_bearer"
     assert config.providers["openrouter"].get_endpoint("api").auth_header == "authorization_bearer"
     assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").stream_usage_mode == "no_option_usage_chunk"
     assert config.providers["volcengine_ark"].get_endpoint("api").stream_usage_mode == "ark_include_usage"
+    assert config.providers["agnes"].get_endpoint("api").stream_usage_mode == "openai_include_usage"
     assert config.providers["openrouter"].get_endpoint("api").stream_usage_mode == "no_option_usage_chunk"
+    assert config.model_instances[-2].name == "agnes-2.0-flash"
+    assert config.model_instances[-2].provider == "agnes"
+    assert config.model_instances[-2].level < config.model_instances[-1].level
+    assert config.model_instances[-2].iter_key_configs()[0].priority < config.model_instances[-1].iter_key_configs()[0].priority
     assert [key.id for key in config.providers["openrouter"].get_endpoint("api").keys] == [
         "openrouter_1",
         "openrouter_2",

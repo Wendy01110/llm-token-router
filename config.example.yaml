@@ -38,6 +38,17 @@ providers:
           - id: volcengine_ark_1
             value: ${ARK_API_KEY}
 
+  agnes:
+    type: openai_compatible
+    stream_usage_mode: openai_include_usage
+    endpoints:
+      api:
+        base_url: ${AGNES_BASE_URL}
+        auth_header: authorization_bearer
+        keys:
+          - id: agnes_1
+            value: ${AGNES_API_KEY}
+
   openrouter:
     type: openai_compatible
     stream_usage_mode: no_option_usage_chunk
@@ -71,6 +82,16 @@ model_instances:
         daily_quota: 50000000
         priority: 20
     groups: [general, coding, fallback]
+
+  - name: ${AGNES_MODEL}
+    provider: agnes
+    endpoint: api
+    level: 4
+    keys:
+      - key_id: agnes_1
+        daily_quota: 5000000
+        priority: 90
+    groups: [general, coding, fallback, free]
 
   - name: ${OPENROUTER_FREE_MODEL}
     provider: openrouter

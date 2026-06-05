@@ -27,6 +27,10 @@ ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARK_API_KEY=...
 ARK_MODEL=doubao-seed-2-0-lite-260215
 
+AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
+AGNES_API_KEY=...
+AGNES_MODEL=agnes-2.0-flash
+
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=...
 OPENROUTER_API_KEY_2=...
@@ -37,10 +41,11 @@ TAVILY_API_KEY=tvly-...
 
 `load_config()` 会先读取 `config.yaml` 同目录下的 `.env`，再解析配置里的 `${VAR_NAME}`。如果同名变量已经存在于 shell 环境变量中，shell 里的值优先。
 
-`config.example.yaml` 默认启用三个供应商：
+`config.example.yaml` 默认启用四个供应商：
 
 - `xiaomi_mimo`
 - `volcengine_ark`
+- `agnes`
 - `openrouter`
 
 其它项目接入本地 router 时，可参考 [其它项目调用指南](docs/client-integration-cn.md)。
@@ -83,7 +88,7 @@ providers:
 
 示例配置使用 OpenRouter 官方的 Free Models Router：`openrouter/free`，而不是把模型页里的具体 `:free` 模型全部列进配置。这样 OpenRouter 免费模型列表变化时，本地配置不需要频繁维护。
 
-OpenRouter 模型实例被放在最低兜底等级：
+AGNES 的 `agnes-2.0-flash` 被放在 OpenRouter 前的兜底等级，OpenRouter 模型实例仍然是最低兜底等级：
 
 ```yaml
 model_instances:

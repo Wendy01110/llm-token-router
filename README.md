@@ -27,6 +27,10 @@ ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARK_API_KEY=...
 ARK_MODEL=doubao-seed-2-0-lite-260215
 
+AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
+AGNES_API_KEY=...
+AGNES_MODEL=agnes-2.0-flash
+
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_API_KEY=...
 OPENROUTER_API_KEY_2=...
@@ -41,6 +45,7 @@ TAVILY_API_KEY=tvly-...
 
 - `xiaomi_mimo`
 - `volcengine_ark`
+- `agnes`
 - `openrouter`
 
 Provider and endpoint are separate:
@@ -76,7 +81,7 @@ To add another provider later, add a new entry under `providers`, then add one o
 
 The example config uses OpenRouter's official Free Models Router, `openrouter/free`, instead of enumerating specific `:free` model ids from the model catalog. This keeps the local config stable while OpenRouter's free model list changes.
 
-The OpenRouter model instance is configured as the lowest fallback tier:
+AGNES `agnes-2.0-flash` is configured as the fallback tier before OpenRouter. The OpenRouter model instance remains the lowest fallback tier:
 
 ```yaml
 model_instances:
