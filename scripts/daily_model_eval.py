@@ -49,6 +49,12 @@ def parse_args() -> argparse.Namespace:
         default=int(os.environ.get("DAILY_EVAL_MAX_TOKENS", "100000")),
         help="Maximum completion tokens per model/key evaluation request.",
     )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=int(os.environ.get("DAILY_EVAL_CONCURRENCY", "4")),
+        help="Maximum concurrent model/key evaluation requests.",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +74,7 @@ def main() -> int:
             tavily_api_key=tavily_api_key,
             reports_dir=Path(args.reports_dir),
             max_tokens=args.max_tokens,
+            concurrency=args.concurrency,
         )
     )
     print(

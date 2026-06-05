@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -20,6 +23,11 @@ from token_router.app.usage import UsageManager
 
 DEFAULT_REPORTS_DIR = Path("reports/daily-model-eval")
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+DEFAULT_DAILY_EVAL_SCHEDULE_HOUR = 0
+DEFAULT_DAILY_EVAL_MAX_TOKENS = 100000
+DEFAULT_DAILY_EVAL_CONCURRENCY = 4
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -212,7 +220,7 @@ def format_hotspot_context(tavily_results: dict[str, Any]) -> str:
         answer = data.get("answer")
         if answer:
             sections.append(f"Tavily answer: {answer}")
-        for index, item in enumerate(data.get("results", [])[:5], start=1):
+        for index, item in enumerate(data.get("results", []), start=1):
             title = item.get("title", "Untitled")
             url = item.get("url", "")
             content = item.get("content", "")
@@ -335,6 +343,33 @@ async def run_model_eval(
     )
 
 
+async def run_model_evals(
+    config: AppConfig,
+    usage_manager: UsageManager,
+    provider: OpenAICompatibleProvider,
+    targets: list[EvalTarget],
+    quota_date: str,
+    hotspot_context: str,
+    max_tokens: int,
+    concurrency: int,
+) -> list[ModelEvalResult]:
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+
+    async def run_one(target: EvalTarget) -> ModelEvalResult:
+        async with semaphore:
+            return await run_model_eval(
+                config=config,
+                usage_manager=usage_manager,
+                provider=provider,
+                target=target,
+                quota_date=quota_date,
+                hotspot_context=hotspot_context,
+                max_tokens=max_tokens,
+            )
+
+    return list(await asyncio.gather(*(run_one(target) for target in targets)))
+
+
 async def run_daily_eval(
     config: AppConfig,
     usage_manager: UsageManager,
@@ -342,6 +377,7 @@ async def run_daily_eval(
     reports_dir: Path | None = None,
     now: datetime | None = None,
     max_tokens: int = 800,
+    concurrency: int = 4,
 ) -> DailyEvalResult:
     current_time = now or datetime.now().astimezone()
     quota_date = quota_date_for(
@@ -352,19 +388,16 @@ async def run_daily_eval(
     tavily_results = await fetch_tavily_hotspots(tavily_api_key)
     hotspot_context = format_hotspot_context(tavily_results)
     provider = OpenAICompatibleProvider()
-    model_results = []
-    for target in expand_eval_targets(config):
-        model_results.append(
-            await run_model_eval(
-                config=config,
-                usage_manager=usage_manager,
-                provider=provider,
-                target=target,
-                quota_date=quota_date,
-                hotspot_context=hotspot_context,
-                max_tokens=max_tokens,
-            )
-        )
+    model_results = await run_model_evals(
+        config=config,
+        usage_manager=usage_manager,
+        provider=provider,
+        targets=expand_eval_targets(config),
+        quota_date=quota_date,
+        hotspot_context=hotspot_context,
+        max_tokens=max_tokens,
+        concurrency=concurrency,
+    )
     result = DailyEvalResult(
         run_date=current_time.date().isoformat(),
         quota_date=quota_date,
@@ -374,6 +407,108 @@ async def run_daily_eval(
     )
     write_daily_eval_report(reports_dir or reports_dir_from_env(), result)
     return result
+
+
+def next_daily_eval_run(
+    now: datetime,
+    timezone: str,
+    schedule_hour: int = DEFAULT_DAILY_EVAL_SCHEDULE_HOUR,
+) -> datetime:
+    tz = ZoneInfo(timezone)
+    local_now = now.astimezone(tz) if now.tzinfo else now.replace(tzinfo=tz)
+    next_run = local_now.replace(
+        hour=schedule_hour,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    if next_run <= local_now:
+        next_run += timedelta(days=1)
+    return next_run
+
+
+async def run_daily_eval_scheduler(
+    config: AppConfig,
+    usage_manager: UsageManager,
+    tavily_api_key: str,
+    reports_dir: Path | None = None,
+    max_tokens: int = DEFAULT_DAILY_EVAL_MAX_TOKENS,
+    concurrency: int = DEFAULT_DAILY_EVAL_CONCURRENCY,
+    schedule_hour: int = DEFAULT_DAILY_EVAL_SCHEDULE_HOUR,
+    sleep_fn: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    now_fn: Callable[[], datetime] | None = None,
+    run_eval: Callable[..., Awaitable[DailyEvalResult]] = run_daily_eval,
+) -> None:
+    timezone = config.refresh.timezone
+    current_time = now_fn or (lambda: datetime.now(ZoneInfo(timezone)))
+
+    while True:
+        now = current_time()
+        next_run = next_daily_eval_run(now, timezone, schedule_hour)
+        local_now = (
+            now.astimezone(next_run.tzinfo)
+            if now.tzinfo
+            else now.replace(tzinfo=next_run.tzinfo)
+        )
+        delay_seconds = max(0.0, (next_run - local_now).total_seconds())
+        logger.info("daily model evaluation scheduled for %s", next_run.isoformat())
+        await sleep_fn(delay_seconds)
+
+        try:
+            await run_eval(
+                config=config,
+                usage_manager=usage_manager,
+                tavily_api_key=tavily_api_key,
+                reports_dir=reports_dir,
+                now=current_time(),
+                max_tokens=max_tokens,
+                concurrency=concurrency,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("daily model evaluation failed")
+
+
+def start_daily_eval_scheduler(
+    *,
+    config: AppConfig,
+    usage_manager: UsageManager,
+) -> asyncio.Task[None] | None:
+    tavily_api_key = os.environ.get("TAVILY_API_KEY")
+    if not tavily_api_key:
+        logger.warning("TAVILY_API_KEY is not set; daily model evaluation is disabled")
+        return None
+
+    return asyncio.create_task(
+        run_daily_eval_scheduler(
+            config=config,
+            usage_manager=usage_manager,
+            tavily_api_key=tavily_api_key,
+            reports_dir=reports_dir_from_env(),
+            max_tokens=_int_from_env(
+                "DAILY_EVAL_MAX_TOKENS",
+                DEFAULT_DAILY_EVAL_MAX_TOKENS,
+            ),
+            concurrency=_int_from_env(
+                "DAILY_EVAL_CONCURRENCY",
+                DEFAULT_DAILY_EVAL_CONCURRENCY,
+            ),
+        ),
+        name="daily-model-eval-scheduler",
+    )
+
+
+def _int_from_env(name: str, default: int) -> int:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        logger.warning("%s must be an integer; using %s", name, default)
+        return default
+    return max(1, value)
 
 
 def write_daily_eval_report(reports_dir: str | Path, result: DailyEvalResult) -> None:

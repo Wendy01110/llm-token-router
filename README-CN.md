@@ -543,6 +543,23 @@ http://127.0.0.1:8000/admin/usage
 python scripts/daily_model_eval.py
 ```
 
+各模型/key 会并发评测，默认并发数是 `4`。可以用环境变量覆盖：
+
+```bash
+DAILY_EVAL_CONCURRENCY=6 python scripts/daily_model_eval.py
+```
+
+Router 服务启动时，如果配置了 `TAVILY_API_KEY`，会同时启动后台调度器。使用常规服务启动命令后，评测会按 `config.refresh.timezone` 的每天 `00:00` 自动运行：
+
+```bash
+nohup .venv/bin/python -m uvicorn token_router.app.main:app \
+  --host 127.0.0.1 \
+  --port 8000 \
+  > logs/router.log 2>&1 &
+```
+
+后台任务会复用 `DAILY_EVAL_MAX_TOKENS`、`DAILY_EVAL_CONCURRENCY` 和 `TOKEN_ROUTER_REPORTS_DIR`。如果缺少 `TAVILY_API_KEY`，Web 服务仍会启动，但日志会提示每日评测未启用。
+
 输出文件：
 
 - `reports/daily-model-eval/YYYY-MM-DD/report.md`

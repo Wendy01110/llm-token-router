@@ -528,6 +528,23 @@ Run it manually from the project root:
 python scripts/daily_model_eval.py
 ```
 
+Model/key evaluations run concurrently. The default concurrency is `4`; override it with:
+
+```bash
+DAILY_EVAL_CONCURRENCY=6 python scripts/daily_model_eval.py
+```
+
+When the router service starts, it also starts a background scheduler if `TAVILY_API_KEY` is set. With the normal service command, the evaluator runs automatically every day at `00:00` in `config.refresh.timezone`:
+
+```bash
+nohup .venv/bin/python -m uvicorn token_router.app.main:app \
+  --host 127.0.0.1 \
+  --port 8000 \
+  > logs/router.log 2>&1 &
+```
+
+Use `DAILY_EVAL_MAX_TOKENS`, `DAILY_EVAL_CONCURRENCY`, and `TOKEN_ROUTER_REPORTS_DIR` to tune the background run. If `TAVILY_API_KEY` is missing, the web service still starts and logs that the daily evaluator is disabled.
+
 Outputs:
 
 - `reports/daily-model-eval/YYYY-MM-DD/report.md`

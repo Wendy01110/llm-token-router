@@ -26,8 +26,12 @@ from token_router.app.daily_eval import (
     build_tavily_headers,
     build_tavily_search_payload,
     expand_eval_targets,
+    format_hotspot_context,
+    next_daily_eval_run,
     render_daily_eval_home,
     run_model_eval,
+    run_model_evals,
+    start_daily_eval_scheduler,
     write_daily_eval_report,
 )
 from token_router.app.database import init_db
@@ -54,6 +58,20 @@ class FakeProvider:
         if self.error is not None:
             raise self.error
         return self.response
+
+
+class ConcurrentProvider(FakeProvider):
+    def __init__(self):
+        super().__init__()
+        self.active_calls = 0
+        self.max_active_calls = 0
+
+    async def chat_completion(self, provider_config, api_key, payload):
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        await asyncio.sleep(0.01)
+        self.active_calls -= 1
+        return await super().chat_completion(provider_config, api_key, payload)
 
 
 def multi_key_config() -> AppConfig:
@@ -172,6 +190,30 @@ def test_tavily_request_matches_curl_shape():
     assert payload["time_range"] == "day"
 
 
+def test_format_hotspot_context_includes_every_tavily_result():
+    tavily_results = {
+        "general": {
+            "query": "latest daily general news",
+            "answer": "General answer",
+            "results": [
+                {
+                    "title": f"Title {index}",
+                    "url": f"https://example.test/{index}",
+                    "content": f"Content {index}",
+                }
+                for index in range(12)
+            ],
+        }
+    }
+
+    context = format_hotspot_context(tavily_results)
+
+    for index in range(12):
+        assert f"Title {index}" in context
+        assert f"https://example.test/{index}" in context
+        assert f"Content {index}" in context
+
+
 def test_run_model_eval_counts_successful_usage_in_model_instances(tmp_path):
     db_path = tmp_path / "usage.sqlite3"
     init_db(db_path)
@@ -233,6 +275,92 @@ def test_run_model_eval_records_request_when_usage_missing(tmp_path):
     assert result.usage_missing is True
     assert usage.total_tokens == 0
     assert usage.request_count == 1
+
+
+def test_run_model_evals_executes_targets_concurrently(tmp_path):
+    db_path = tmp_path / "usage.sqlite3"
+    init_db(db_path)
+    usage_manager = UsageManager(db_path)
+    config = multi_key_config()
+    targets = expand_eval_targets(config)
+    provider = ConcurrentProvider()
+
+    results = asyncio.run(
+        run_model_evals(
+            config=config,
+            usage_manager=usage_manager,
+            provider=provider,
+            targets=targets,
+            quota_date="2026-06-04",
+            hotspot_context="热点资料",
+            max_tokens=300,
+            concurrency=2,
+        )
+    )
+
+    assert [result.key_id for result in results] == ["ark-1", "ark-2"]
+    assert provider.max_active_calls == 2
+
+
+def test_next_daily_eval_run_uses_next_midnight_in_config_timezone():
+    now = datetime(2026, 6, 4, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    next_run = next_daily_eval_run(now, "Asia/Shanghai")
+
+    assert next_run == datetime(2026, 6, 5, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+
+def test_start_daily_eval_scheduler_skips_without_tavily_key(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    db_path = tmp_path / "usage.sqlite3"
+    init_db(db_path)
+
+    task = start_daily_eval_scheduler(
+        config=multi_key_config(),
+        usage_manager=UsageManager(db_path),
+    )
+
+    assert task is None
+
+
+def test_create_app_starts_daily_eval_scheduler_on_lifespan(
+    tmp_path,
+    monkeypatch,
+):
+    started = []
+
+    def fake_start_daily_eval_scheduler(*, config, usage_manager):
+        async def idle():
+            await asyncio.Event().wait()
+
+        task = asyncio.create_task(idle())
+        started.append((config, usage_manager, task))
+        return task
+
+    monkeypatch.setattr(
+        "token_router.app.main.start_daily_eval_scheduler",
+        fake_start_daily_eval_scheduler,
+    )
+    db_path = tmp_path / "usage.sqlite3"
+    init_db(db_path)
+    usage_manager = UsageManager(db_path)
+    app = create_app(
+        multi_key_config(),
+        usage_manager,
+        now_fn=lambda: datetime(2026, 6, 4, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert len(started) == 1
+    assert started[0][0] is app.state.config
+    assert started[0][1] is usage_manager
+    assert started[0][2].cancelled()
 
 
 def test_write_daily_eval_report_creates_latest_json_and_markdown(tmp_path):
