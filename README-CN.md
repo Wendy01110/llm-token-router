@@ -240,6 +240,27 @@ curl -s http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
+### OpenAI 标准参数适配
+
+默认建议调用方使用 `model: "auto"`，并传标准 OpenAI Chat Completions 参数：
+
+```json
+{
+  "model": "auto",
+  "messages": [{"role": "user", "content": "Reply with OK."}],
+  "store": false,
+  "max_completion_tokens": 512,
+  "reasoning_effort": "medium",
+  "router": {
+    "level": 1,
+    "provider": "auto",
+    "fallback": true
+  }
+}
+```
+
+router 会在选好模型后，把这些标准字段转换成最终 provider 支持的形态。显式指定 `router.provider` 时，除 `router.thinking` 外，标准字段保持透传，便于直接调试某个供应商。`stream_options` 只应随 `stream: true` 发送；自动路由的非流式请求会移除这个字段。
+
 ### 流式响应
 
 当客户端传 `stream: true` 时，router 会以 `text/event-stream` 返回 OpenAI 兼容 SSE，并把上游 `data:` frame 转发给客户端。若上游 stream 中出现非空 `usage`，router 会用最后一次看到的 usage 记录 token 用量；如果 stream 结束前没有 usage，也会记录 1 次请求，token 用量记 0。

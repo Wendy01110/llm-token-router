@@ -407,6 +407,27 @@ curl -s http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
+### OpenAI Standard Parameter Adaptation
+
+The default client path should use `model: "auto"` with standard OpenAI Chat Completions fields:
+
+```json
+{
+  "model": "auto",
+  "messages": [{"role": "user", "content": "Reply with OK."}],
+  "store": false,
+  "max_completion_tokens": 512,
+  "reasoning_effort": "medium",
+  "router": {
+    "level": 1,
+    "provider": "auto",
+    "fallback": true
+  }
+}
+```
+
+After model selection, the router adapts these standard fields to the selected provider. When `router.provider` is explicit, standard fields pass through unchanged except for the router-native `router.thinking` option. Send `stream_options` only with `stream: true`; automatic non-streaming routes remove it before calling upstream providers.
+
 ### Streaming
 
 When the client sends `stream: true`, the router returns OpenAI-compatible SSE as `text/event-stream` and forwards upstream `data:` frames to the client. Usage is recorded from the latest non-null streaming `usage` chunk when the provider emits one. If no usage appears before the stream ends, the request count is still recorded and token usage is recorded as zero.

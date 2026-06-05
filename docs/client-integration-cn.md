@@ -51,6 +51,58 @@ curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
 
 `model: "auto"` 表示让 router 根据当前配置、等级、配额和优先级选择模型。
 
+### 推荐的 OpenAI 标准参数
+
+默认接入建议把本地 router 当成标准 OpenAI Chat Completions provider 调用，再由 router 在选好模型后做供应商适配：
+
+```json
+{
+  "model": "auto",
+  "messages": [
+    {"role": "user", "content": "Reply with OK."}
+  ],
+  "store": false,
+  "max_completion_tokens": 512,
+  "reasoning_effort": "medium",
+  "router": {
+    "level": 1,
+    "provider": "auto",
+    "fallback": true
+  }
+}
+```
+
+流式请求才传 `stream_options`：
+
+```json
+{
+  "model": "auto",
+  "messages": [
+    {"role": "user", "content": "Reply with OK."}
+  ],
+  "store": false,
+  "max_completion_tokens": 512,
+  "reasoning_effort": "medium",
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  },
+  "router": {
+    "level": 1,
+    "provider": "auto",
+    "fallback": true
+  }
+}
+```
+
+适配边界：
+
+- `router.provider` 省略、为 `null` 或为 `"auto"` 时，router 会按最终选中的 provider 转换标准字段。
+- 显式指定 `router.provider` 时，除 `router.thinking` 这个 router 私有开关外，其它请求字段按调用方意图透传给上游。
+- `max_tokens` 是旧字段；自动路由时会改成 `max_completion_tokens`。新调用方应直接传 `max_completion_tokens`。
+- 非流式请求里的 `stream_options` 会在自动路由时移除，避免发给不接受该字段的上游。
+- `reasoning_effort` 会在自动路由时转成 OpenRouter 的 `reasoning.effort`，或转成 MiMo/Ark 的 `thinking.type`。如果同时传 `router.thinking`，以 `router.thinking` 为准。
+
 ## OpenAI Python SDK
 
 调用方项目安装 OpenAI SDK：
@@ -269,6 +321,8 @@ curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
 | `max_fallback_level` | `5`             | 允许降级到的最高等级编号。                       |
 | `strict_model`       | `true`          | 指定模型不可用时，是否禁止 fallback 到其它模型。 |
 | `model_group`        | `"coding"`      | 只选择带有该 group 的模型实例。                  |
+| `thinking`           | `true`          | 是否让 router 为选中的上游模型开启思考模式。     |
+| `thinking_effort`    | `"high"`        | 思考强度；只在上游模型支持强度参数时转发。       |
 | `debug`              | `true`          | 返回 `X-Router-*` 调试响应头。                 |
 
 常用模式：
@@ -282,6 +336,48 @@ curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
   }
 }
 ```
+
+`model: "auto"` 下开启思考模式：
+
+```json
+{
+  "model": "auto",
+  "router": {
+    "level": 1,
+    "fallback": true,
+    "thinking": true,
+    "thinking_effort": "high"
+  }
+}
+```
+
+关闭思考模式：
+
+```json
+{
+  "model": "auto",
+  "router": {
+    "level": 1,
+    "thinking": false
+  }
+}
+```
+
+思考参数规则：
+
+- 不传 `router.thinking` 时，router 不注入思考参数，使用上游模型默认行为。
+- `router.thinking: true` 时，router 会按最终选中的 provider/model 翻译参数。
+- `router.thinking: false` 时，router 会按最终选中的 provider/model 传关闭参数。
+- 如果请求体同时传了上游私有字段，例如顶层 `thinking` 或 `reasoning`，`router.thinking` 会覆盖这些同类字段。
+- `thinking_effort` 推荐值为 `"low"`、`"medium"`、`"high"`；OpenRouter 还接受 `"minimal"`、`"none"`、`"xhigh"`。不支持强度的模型只会收到开关参数。
+
+当前翻译规则：
+
+| 选中的 provider/model | `thinking: true` | `thinking: false` | `thinking_effort` |
+| --------------------- | ---------------- | ----------------- | ----------------- |
+| `xiaomi_mimo`         | `thinking.type=enabled` | `thinking.type=disabled` | 不转发 |
+| `volcengine_ark`      | `thinking.type=enabled` | `thinking.type=disabled` | 仅 `doubao-seed-2-0*` 转成 `reasoning_effort` |
+| `openrouter`          | `reasoning.enabled=true`，或 `reasoning.effort=<value>` | `reasoning.effort=none` | 转成 `reasoning.effort` |
 
 强制走 MiMo：
 

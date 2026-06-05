@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use Local LLM Token Router"
+  short_description: "Use the local OpenAI-compatible token router"
+  default_prompt: "Use $use-local-llm-token-router to connect this project to my local LLM token router."

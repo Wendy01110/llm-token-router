@@ -40,6 +40,9 @@ def main() -> None:
         "Explain why a local LLM token router records usage. "
         "Answer in one concise Chinese sentence.",
     )
+    max_completion_tokens = int(
+        os.getenv("ROUTER_MAX_COMPLETION_TOKENS", os.getenv("ROUTER_MAX_TOKENS", "160"))
+    )
 
     router_options: dict[str, Any] = {
         "provider": provider,
@@ -63,8 +66,10 @@ def main() -> None:
             {"role": "user", "content": prompt},
         ],
         temperature=float(os.getenv("ROUTER_TEMPERATURE", "0.2")),
-        max_tokens=int(os.getenv("ROUTER_MAX_TOKENS", "160")),
-        extra_body={"router": router_options},
+        extra_body={
+            "router": router_options,
+            "max_completion_tokens": max_completion_tokens,
+        },
     )
     completion = raw_response.parse()
     message = completion.choices[0].message if completion.choices else None

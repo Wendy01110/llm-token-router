@@ -67,6 +67,13 @@ async def chat_completions(
     outgoing_payload = request_payload.model_dump(exclude_none=True)
     outgoing_payload["model"] = selected.model_name
     outgoing_payload.pop("router", None)
+    _adapt_openai_standard_params(
+        outgoing_payload,
+        request_payload.router,
+        selected,
+        endpoint_config,
+    )
+    _apply_router_thinking_options(outgoing_payload, request_payload.router, selected)
 
     request_id = str(uuid4())
     started_at = perf_counter()
@@ -167,6 +174,93 @@ def _router_headers(
         "X-Router-Usage-Ratio": str(selected.usage_ratio),
         "X-Router-Stage": str(selected.stage),
     }
+
+
+def _adapt_openai_standard_params(
+    outgoing_payload: dict[str, Any],
+    router_options: dict[str, Any],
+    selected: SelectedRoute,
+    endpoint_config: EndpointConfig,
+) -> None:
+    provider = router_options.get("provider")
+    if provider not in (None, "auto"):
+        return
+
+    if "max_tokens" in outgoing_payload:
+        outgoing_payload.setdefault(
+            "max_completion_tokens",
+            outgoing_payload["max_tokens"],
+        )
+        outgoing_payload.pop("max_tokens", None)
+
+    if outgoing_payload.get("stream") is not True:
+        outgoing_payload.pop("stream_options", None)
+    elif endpoint_config.stream_usage_mode not in {
+        "openai_include_usage",
+        "ark_include_usage",
+    }:
+        outgoing_payload.pop("stream_options", None)
+
+    if "reasoning_effort" not in outgoing_payload or "thinking" in router_options:
+        return
+
+    reasoning_effort = outgoing_payload["reasoning_effort"]
+    if selected.provider == "openrouter":
+        reasoning = dict(outgoing_payload.get("reasoning") or {})
+        reasoning["effort"] = reasoning_effort
+        outgoing_payload["reasoning"] = reasoning
+        outgoing_payload.pop("reasoning_effort", None)
+        return
+
+    if selected.provider == "xiaomi_mimo":
+        outgoing_payload["thinking"] = {
+            "type": "disabled" if reasoning_effort == "none" else "enabled"
+        }
+        outgoing_payload.pop("reasoning_effort", None)
+        return
+
+    if selected.provider == "volcengine_ark":
+        outgoing_payload["thinking"] = {
+            "type": "disabled" if reasoning_effort == "none" else "enabled"
+        }
+        if not selected.model_name.startswith("doubao-seed-2-0"):
+            outgoing_payload.pop("reasoning_effort", None)
+
+
+def _apply_router_thinking_options(
+    outgoing_payload: dict[str, Any],
+    router_options: dict[str, Any],
+    selected: SelectedRoute,
+) -> None:
+    if "thinking" not in router_options:
+        return
+
+    thinking_enabled = bool(router_options["thinking"])
+    thinking_effort = router_options.get("thinking_effort")
+
+    if selected.provider == "openrouter":
+        outgoing_payload.pop("reasoning_effort", None)
+        if thinking_enabled:
+            if thinking_effort:
+                outgoing_payload["reasoning"] = {"effort": thinking_effort}
+            else:
+                outgoing_payload["reasoning"] = {"enabled": True}
+        else:
+            outgoing_payload["reasoning"] = {"effort": "none"}
+        return
+
+    if selected.provider in {"volcengine_ark", "xiaomi_mimo"}:
+        outgoing_payload["thinking"] = {
+            "type": "enabled" if thinking_enabled else "disabled"
+        }
+        outgoing_payload.pop("reasoning_effort", None)
+        if (
+            thinking_enabled
+            and thinking_effort
+            and selected.provider == "volcengine_ark"
+            and selected.model_name.startswith("doubao-seed-2-0")
+        ):
+            outgoing_payload["reasoning_effort"] = thinking_effort
 
 
 async def _stream_and_record_usage(
