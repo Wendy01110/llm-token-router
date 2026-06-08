@@ -112,12 +112,19 @@ class RuntimeFallbackNativeResponsesProvider:
         )
 
 
+class MidStreamErrorResponsesProvider(RecordingNativeResponsesProvider):
+    async def responses_stream(self, provider_config, api_key, payload):
+        self.stream_payloads.append(payload)
+        yield b'event: response.created\ndata: {"type":"response.created"}\n\n'
+        raise _status_error(400, "unsupported responses payload")
+
+
 def _request_logs(usage_manager):
     with connect(usage_manager.db_path) as connection:
         return connection.execute(
             """
-            SELECT provider_name, key_id, model_name, prompt_tokens,
-                   completion_tokens, total_tokens, status
+                SELECT provider_name, key_id, model_name, prompt_tokens,
+                   completion_tokens, total_tokens, status, error_message
             FROM request_logs
             ORDER BY id
             """
@@ -155,6 +162,42 @@ def _enable_two_native_responses_models(app_config):
         ModelInstanceConfig(
             name="native-b",
             provider="native",
+            endpoint="api",
+            level=2,
+            keys=[{"key_id": "native-key", "daily_quota": 100}],
+            groups=["general"],
+        ),
+    ]
+
+
+def _enable_native_responses_custom_tool_fallback(app_config):
+    app_config.providers["native_a"] = app_config.providers.pop("test")
+    app_config.providers["native_a"].endpoints["api"] = EndpointConfig(
+        base_url="https://responses.test/v1",
+        responses_api="native",
+        responses_unsupported_tool_types=["custom"],
+        keys=[ApiKeyConfig(id="native-key", value="sk-native-a")],
+    )
+    app_config.providers["native_b"] = app_config.providers["native_a"].model_copy(
+        deep=True
+    )
+    app_config.providers["native_b"].endpoints["api"] = EndpointConfig(
+        base_url="https://responses.test/v1",
+        responses_api="native",
+        keys=[ApiKeyConfig(id="native-key", value="sk-native-b")],
+    )
+    app_config.model_instances = [
+        ModelInstanceConfig(
+            name="native-a",
+            provider="native_a",
+            endpoint="api",
+            level=1,
+            keys=[{"key_id": "native-key", "daily_quota": 100}],
+            groups=["general"],
+        ),
+        ModelInstanceConfig(
+            name="native-b",
+            provider="native_b",
             endpoint="api",
             level=2,
             keys=[{"key_id": "native-key", "daily_quota": 100}],
@@ -391,3 +434,71 @@ def test_responses_endpoint_stream_falls_back_before_first_chunk(
     assert usage_b.request_count == 1
     logs = _request_logs(usage_manager)
     assert [log["status"] for log in logs] == ["error", "ok"]
+
+
+def test_responses_endpoint_skips_routes_with_unsupported_custom_tools(
+    app_config, usage_manager, fixed_now
+):
+    _enable_native_responses_custom_tool_fallback(app_config)
+    provider = RecordingNativeResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/responses",
+        json={
+            "model": "auto",
+            "input": "hello",
+            "tools": [{"type": "custom", "name": "shell"}],
+            "router": {"level": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "native-b"
+    assert provider.payloads == [
+        {
+            "model": "native-b",
+            "input": "hello",
+            "tools": [{"type": "custom", "name": "shell"}],
+        }
+    ]
+
+
+def test_responses_endpoint_stream_reports_midstream_upstream_error(
+    app_config, usage_manager, fixed_now
+):
+    _enable_native_responses_endpoint(app_config)
+    provider = MidStreamErrorResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/v1/responses",
+        json={
+            "model": "auto",
+            "input": "hello",
+            "stream": True,
+            "router": {"level": 1},
+        },
+    ) as response:
+        body = b"".join(response.iter_bytes())
+
+    assert response.status_code == 200
+    assert b"event: response.created" in body
+    assert b"event: error" in body
+    assert b"unsupported responses payload" in body
+    logs = _request_logs(usage_manager)
+    assert logs[-1]["status"] == "error"
+    assert "unsupported responses payload" in logs[-1]["error_message"]

@@ -106,7 +106,7 @@ async def responses(
                 selected=selected,
                 usage={},
                 status="error",
-                error_message=str(exc),
+                error_message=_http_error_message(exc),
                 started_at=attempt_started_at,
             )
             if is_retryable_runtime_error(exc):
@@ -156,6 +156,7 @@ def _prepare_responses_attempt(
         router=request_payload.router,
         quota_date=quota_date,
         responses_api="native",
+        responses_tool_types=_responses_tool_types(request_payload),
         excluded_routes=excluded_routes,
     )
     provider_config = config.providers[selected.provider]
@@ -212,7 +213,7 @@ async def _open_responses_stream_with_fallback(
                 selected=selected,
                 usage={},
                 status="error",
-                error_message=str(exc),
+                error_message=_http_error_message(exc),
                 started_at=attempt_started_at,
             )
             if is_retryable_runtime_error(exc):
@@ -232,7 +233,7 @@ def _raise_runtime_http_error(exc: httpx.HTTPError) -> None:
     if isinstance(exc, httpx.HTTPStatusError):
         raise HTTPException(
             status_code=exc.response.status_code,
-            detail=exc.response.text,
+            detail=_response_error_text(exc.response) or str(exc),
         ) from exc
     raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -243,6 +244,17 @@ def _debug_chat_payload(request_payload: ResponsesRequest) -> ChatCompletionRequ
         messages=[],
         router=request_payload.router,
     )
+
+
+def _responses_tool_types(request_payload: ResponsesRequest) -> set[str]:
+    tools = request_payload.model_dump(exclude_none=True).get("tools")
+    if not isinstance(tools, list):
+        return set()
+    return {
+        tool["type"]
+        for tool in tools
+        if isinstance(tool, dict) and isinstance(tool.get("type"), str)
+    }
 
 
 async def _stream_native_responses_and_record_usage(
@@ -269,10 +281,10 @@ async def _stream_native_responses_and_record_usage(
             if usage is not None:
                 latest_usage = usage
             yield chunk
-    except httpx.HTTPStatusError as exc:
+    except httpx.HTTPError as exc:
         status = "error"
-        error_message = str(exc)
-        raise
+        error_message = _http_error_message(exc)
+        yield _responses_stream_error_event(error_message)
     finally:
         usage = _normalise_response_usage(latest_usage or {})
         usage_manager.record_usage(
@@ -329,6 +341,34 @@ def _extract_usage_from_responses_sse_line(raw_line: bytes) -> dict[str, Any] | 
     if isinstance(event.get("usage"), dict):
         return event["usage"]
     return None
+
+
+def _http_error_message(exc: httpx.HTTPError) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        response_text = _response_error_text(exc.response)
+        if response_text:
+            return f"{exc}; response: {response_text}"
+    return str(exc)
+
+
+def _response_error_text(response: httpx.Response) -> str:
+    try:
+        return response.text.strip()
+    except httpx.ResponseNotRead:
+        return ""
+
+
+def _responses_stream_error_event(message: str) -> bytes:
+    payload = {
+        "type": "error",
+        "error": {
+            "type": "upstream_error",
+            "code": "upstream_http_error",
+            "message": message,
+        },
+    }
+    data = json.dumps(payload, ensure_ascii=False)
+    return f"event: error\ndata: {data}\n\n".encode()
 
 
 def _normalise_response_usage(usage: dict[str, Any]) -> dict[str, int]:

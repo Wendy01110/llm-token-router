@@ -35,7 +35,7 @@ class OpenAICompatibleProvider:
         headers = self._headers(provider_config, api_key)
         async with httpx.AsyncClient(timeout=120, transport=self.transport) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as response:
-                response.raise_for_status()
+                await _raise_for_status_with_body(response)
                 async for chunk in response.aiter_bytes():
                     yield chunk
 
@@ -62,7 +62,7 @@ class OpenAICompatibleProvider:
         headers = self._headers(provider_config, api_key)
         async with httpx.AsyncClient(timeout=120, transport=self.transport) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as response:
-                response.raise_for_status()
+                await _raise_for_status_with_body(response)
                 async for chunk in response.aiter_bytes():
                     yield chunk
 
@@ -72,3 +72,9 @@ class OpenAICompatibleProvider:
         if provider_config.auth_header == "api_key":
             return {"api-key": api_key.value}
         return {"Authorization": f"Bearer {api_key.value}"}
+
+
+async def _raise_for_status_with_body(response: httpx.Response) -> None:
+    if response.is_error:
+        await response.aread()
+    response.raise_for_status()

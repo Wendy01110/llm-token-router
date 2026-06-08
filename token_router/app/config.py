@@ -44,6 +44,7 @@ class EndpointConfig(BaseModel):
     auth_header: Literal["authorization_bearer", "api_key"] = "authorization_bearer"
     stream_usage_mode: StreamUsageMode | None = None
     responses_api: ResponsesApiMode | None = None
+    responses_unsupported_tool_types: list[str] | None = None
     keys: list[ApiKeyConfig]
 
 
@@ -53,6 +54,7 @@ class ProviderConfig(BaseModel):
     auth_header: Literal["authorization_bearer", "api_key"] = "authorization_bearer"
     stream_usage_mode: StreamUsageMode = "parse_only"
     responses_api: ResponsesApiMode = "unsupported"
+    responses_unsupported_tool_types: list[str] = Field(default_factory=list)
     keys: list[ApiKeyConfig] = Field(default_factory=list)
     endpoints: dict[str, EndpointConfig] = Field(default_factory=dict)
 
@@ -78,6 +80,14 @@ class ProviderConfig(BaseModel):
                 endpoint_config = endpoint_config.model_copy(
                     update={"responses_api": self.responses_api}
                 )
+            if endpoint_config.responses_unsupported_tool_types is None:
+                endpoint_config = endpoint_config.model_copy(
+                    update={
+                        "responses_unsupported_tool_types": list(
+                            self.responses_unsupported_tool_types
+                        )
+                    }
+                )
             return endpoint_config
         if endpoint != "default":
             raise KeyError(f"unknown endpoint {endpoint!r}")
@@ -88,6 +98,9 @@ class ProviderConfig(BaseModel):
             auth_header=self.auth_header,
             stream_usage_mode=self.stream_usage_mode,
             responses_api=self.responses_api,
+            responses_unsupported_tool_types=list(
+                self.responses_unsupported_tool_types
+            ),
             keys=self.keys,
         )
 

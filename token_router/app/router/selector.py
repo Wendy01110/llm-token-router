@@ -29,6 +29,7 @@ class RouteSelector:
         router: Mapping[str, Any] | None,
         quota_date: str,
         responses_api: str | None = None,
+        responses_tool_types: set[str] | None = None,
         excluded_routes: set[RouteKey] | None = None,
     ) -> SelectedRoute:
         router_options = dict(router or {})
@@ -41,6 +42,7 @@ class RouteSelector:
             router_options=router_options,
             quota_date=quota_date,
             responses_api=responses_api,
+            responses_tool_types=responses_tool_types,
             excluded_routes=excluded_routes,
         )
         if selected is not None:
@@ -52,6 +54,7 @@ class RouteSelector:
                 router_options=router_options,
                 quota_date=quota_date,
                 responses_api=responses_api,
+                responses_tool_types=responses_tool_types,
                 excluded_routes=excluded_routes,
             )
             if selected is not None:
@@ -72,6 +75,7 @@ class RouteSelector:
         router_options: Mapping[str, Any],
         quota_date: str,
         responses_api: str | None = None,
+        responses_tool_types: set[str] | None = None,
         excluded_routes: set[RouteKey] | None = None,
     ) -> SelectedRoute | None:
         candidates = []
@@ -90,12 +94,17 @@ class RouteSelector:
                 continue
             if model_group and model_group not in instance.groups:
                 continue
-            if responses_api is not None:
+            if responses_api is not None or responses_tool_types:
                 endpoint = self.config.providers[instance.provider].get_endpoint(
                     instance.endpoint
                 )
+            if responses_api is not None:
                 if endpoint.responses_api != responses_api:
                     continue
+            if responses_tool_types and set(
+                endpoint.responses_unsupported_tool_types or []
+            ).intersection(responses_tool_types):
+                continue
 
             for key_config in instance.iter_key_configs():
                 route = self._build_route(instance, key_config, quota_date)

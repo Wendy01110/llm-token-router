@@ -36,6 +36,7 @@ providers:
         base_url: ${ARK_BASE_URL}
         auth_header: authorization_bearer
         responses_api: native
+        responses_unsupported_tool_types: [custom]
         keys:
           - id: volcengine_ark_1
             value: ${ARK_API_KEY}

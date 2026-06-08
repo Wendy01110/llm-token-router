@@ -145,8 +145,10 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     assert config.providers["openrouter"].get_endpoint("api").stream_usage_mode == "no_option_usage_chunk"
     assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").responses_api == "unsupported"
     assert config.providers["volcengine_ark"].get_endpoint("api").responses_api == "native"
+    assert config.providers["volcengine_ark"].get_endpoint("api").responses_unsupported_tool_types == ["custom"]
     assert config.providers["agnes"].get_endpoint("api").responses_api == "unsupported"
     assert config.providers["openrouter"].get_endpoint("api").responses_api == "native"
+    assert config.providers["openrouter"].get_endpoint("api").responses_unsupported_tool_types == []
     assert config.model_instances[-2].name == "agnes-2.0-flash"
     assert config.model_instances[-2].provider == "agnes"
     assert config.model_instances[-2].level < config.model_instances[-1].level

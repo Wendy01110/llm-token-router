@@ -1,6 +1,7 @@
 import asyncio
 
 import httpx
+import pytest
 
 from token_router.app.config import ApiKeyConfig, ProviderConfig
 from token_router.app.providers.openai_compatible import OpenAICompatibleProvider
@@ -167,3 +168,28 @@ def test_provider_streams_native_responses_sse_bytes():
 
     assert captured["url"] == "https://example.test/v1/responses"
     assert b"".join(chunks).startswith(b"event: response.completed")
+
+
+def test_provider_native_responses_stream_status_error_body_is_readable():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text='{"error":"bad responses payload"}')
+
+    provider = OpenAICompatibleProvider(transport=httpx.MockTransport(handler))
+    config = ProviderConfig(
+        type="openai_compatible",
+        base_url="https://example.test/v1",
+        keys=[ApiKeyConfig(id="test", value="sk-test")],
+    )
+
+    with pytest.raises(httpx.HTTPStatusError) as exc_info:
+        asyncio.run(
+            _collect_stream(
+                provider.responses_stream(
+                    config,
+                    config.keys[0],
+                    {"model": "model-a", "input": "hello", "stream": True},
+                )
+            )
+        )
+
+    assert exc_info.value.response.text == '{"error":"bad responses payload"}'

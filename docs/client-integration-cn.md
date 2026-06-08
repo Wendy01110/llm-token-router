@@ -135,10 +135,12 @@ curl --noproxy '*' -sS http://127.0.0.1:8000/v1/responses \
 
 | Provider | `/v1/responses` 状态 | 备注 |
 | --- | --- | --- |
-| `volcengine_ark` | 原生支持，已启用 | 方舟官方 Responses API 支持创建、查询、上下文、删除和流式响应。 |
+| `volcengine_ark` | 原生支持，已启用 | 方舟官方 Responses API 支持创建、查询、上下文、删除和流式响应；当前配置会跳过带 `tool.type=custom` 的请求。 |
 | `openrouter` | 原生支持，已启用 | OpenRouter Responses API 仍是 beta，并且是 stateless；不要依赖服务端保存 `previous_response_id` 状态。 |
 | `xiaomi_mimo` | 未启用 | 当前官方兼容文档只列出 Chat Completions endpoint。 |
 | `agnes` | 未启用 | 当前可查文档只确认 OpenAI Chat Completions 兼容。 |
+
+Codex 作为客户端时会发送 OpenAI Responses `custom` tools。已知火山方舟会返回 `InvalidParameter` / `unknown tool type: custom`，所以本地配置用 `responses_unsupported_tool_types: [custom]` 把这类请求从 Ark 候选中排除，让 router 继续 fallback 到其它原生 Responses endpoint。
 
 ## OpenAI Python SDK
 
