@@ -362,6 +362,16 @@ curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
 | `thinking_effort`    | `"high"`        | 思考强度；只在上游模型支持强度参数时转发。       |
 | `debug`              | `true`          | 返回 `X-Router-*` 调试响应头。                 |
 
+## Runtime fallback 与 cooldown
+
+router 的本地 quota 只能覆盖日配额和请求次数，不能完全反映上游 TPS/RPM 的瞬时状态。运行时调用上游时，如果遇到 `429`、`5xx`、网络错误或超时，router 会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在同一个请求内继续选择下一个可用 route。
+
+- `routing.runtime_cooldown_seconds` 控制冷却时间，默认 `30` 秒。
+- `400`、`401`、`403` 等请求格式或鉴权错误不会 fallback。
+- 非流式 `/v1/chat/completions` 和 `/v1/responses` 都支持 runtime fallback。
+- 流式请求只支持首包前 fallback；一旦已有 SSE chunk 发给客户端，就不会在该流中切换模型。
+- `/v1/responses` 只会在 `responses_api: native` 的 endpoint 中 fallback。
+
 常用模式：
 
 ```json

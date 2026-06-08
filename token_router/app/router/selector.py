@@ -9,6 +9,7 @@ from token_router.app.config import (
     ModelInstanceKeyConfig,
 )
 from token_router.app.router.quota import is_exhausted, stage_for_usage, usage_ratio
+from token_router.app.router.runtime import RouteKey, route_key
 from token_router.app.schemas.router import SelectedRoute
 from token_router.app.usage import UsageManager
 
@@ -28,16 +29,19 @@ class RouteSelector:
         router: Mapping[str, Any] | None,
         quota_date: str,
         responses_api: str | None = None,
+        excluded_routes: set[RouteKey] | None = None,
     ) -> SelectedRoute:
         router_options = dict(router or {})
         requested_model = None if model == "auto" else model
         strict_model = bool(router_options.get("strict_model", False))
+        excluded_routes = excluded_routes or set()
 
         selected = self._select_matching(
             requested_model=requested_model,
             router_options=router_options,
             quota_date=quota_date,
             responses_api=responses_api,
+            excluded_routes=excluded_routes,
         )
         if selected is not None:
             return selected
@@ -48,6 +52,7 @@ class RouteSelector:
                 router_options=router_options,
                 quota_date=quota_date,
                 responses_api=responses_api,
+                excluded_routes=excluded_routes,
             )
             if selected is not None:
                 return selected
@@ -67,12 +72,14 @@ class RouteSelector:
         router_options: Mapping[str, Any],
         quota_date: str,
         responses_api: str | None = None,
+        excluded_routes: set[RouteKey] | None = None,
     ) -> SelectedRoute | None:
         candidates = []
         levels = set(self._candidate_levels(router_options))
         provider = router_options.get("provider")
         provider = None if provider in (None, "auto") else provider
         model_group = router_options.get("model_group")
+        excluded_routes = excluded_routes or set()
 
         for instance in self.config.model_instances:
             if instance.level not in levels:
@@ -92,7 +99,7 @@ class RouteSelector:
 
             for key_config in instance.iter_key_configs():
                 route = self._build_route(instance, key_config, quota_date)
-                if route.available:
+                if route.available and route_key(route) not in excluded_routes:
                     candidates.append(route)
 
         if not candidates:

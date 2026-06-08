@@ -15,6 +15,7 @@ from token_router.app.config import AppConfig, load_config
 from token_router.app.daily_eval import start_daily_eval_scheduler
 from token_router.app.database import init_db
 from token_router.app.providers.openai_compatible import OpenAICompatibleProvider
+from token_router.app.router.runtime import RuntimeRouteState
 from token_router.app.usage import UsageManager
 
 
@@ -55,6 +56,7 @@ def create_app(
     app.state.config = config
     app.state.usage_manager = usage_manager
     app.state.provider = provider or OpenAICompatibleProvider()
+    app.state.runtime_state = RuntimeRouteState()
     app.state.now_fn = now_fn or datetime.now
 
     app.include_router(health.router)

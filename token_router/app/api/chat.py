@@ -15,6 +15,11 @@ from token_router.app.providers.streaming import (
     apply_stream_usage_policy,
 )
 from token_router.app.router.quota import quota_date_for
+from token_router.app.router.runtime import (
+    RuntimeRouteState,
+    is_retryable_runtime_error,
+    route_key,
+)
 from token_router.app.router.selector import NoAvailableModelError, RouteSelector
 from token_router.app.schemas.chat import ChatCompletionRequest
 from token_router.app.schemas.router import SelectedRoute
@@ -45,6 +50,7 @@ async def chat_completions(
 ) -> Response:
     config = _get_config(request)
     usage_manager: UsageManager = request.app.state.usage_manager
+    runtime_state: RuntimeRouteState = request.app.state.runtime_state
     selector = RouteSelector(config, usage_manager)
     quota_date = quota_date_for(
         request.app.state.now_fn(),
@@ -52,15 +58,126 @@ async def chat_completions(
         config.refresh.daily_reset_hour,
     )
 
-    try:
-        selected = selector.select(
-            model=request_payload.model,
-            router=request_payload.router,
+    request_id = str(uuid4())
+    request_started_at = perf_counter()
+    excluded_routes = runtime_state.active_route_keys()
+    if request_payload.model_dump(exclude_none=True).get("stream") is True:
+        selected, stream, first_chunk = await _open_chat_stream_with_fallback(
+            request_payload=request_payload,
+            request=request,
+            config=config,
+            usage_manager=usage_manager,
+            runtime_state=runtime_state,
+            selector=selector,
             quota_date=quota_date,
+            request_id=request_id,
+            excluded_routes=excluded_routes,
         )
-    except NoAvailableModelError as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
+        return StreamingResponse(
+            _stream_and_record_usage(
+                stream=stream,
+                first_chunk=first_chunk,
+                usage_manager=usage_manager,
+                request_id=request_id,
+                selected=selected,
+                quota_date=quota_date,
+                started_at=request_started_at,
+            ),
+            media_type="text/event-stream",
+            headers=_router_headers(request_payload, selected),
+        )
 
+    last_error: httpx.HTTPError | None = None
+    while True:
+        try:
+            selected, endpoint_config, api_key, outgoing_payload = _prepare_chat_attempt(
+                config=config,
+                selector=selector,
+                request_payload=request_payload,
+                quota_date=quota_date,
+                excluded_routes=excluded_routes,
+            )
+        except NoAvailableModelError as exc:
+            if last_error is not None:
+                _raise_runtime_http_error(last_error)
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+        attempt_started_at = perf_counter()
+        try:
+            upstream_response: dict[str, Any] = (
+                await request.app.state.provider.chat_completion(
+                    endpoint_config,
+                    api_key,
+                    outgoing_payload,
+                )
+            )
+        except httpx.HTTPError as exc:
+            _log_chat_request(
+                usage_manager=usage_manager,
+                request_id=request_id,
+                selected=selected,
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                status="error",
+                error_message=str(exc),
+                started_at=attempt_started_at,
+            )
+            if is_retryable_runtime_error(exc):
+                runtime_state.mark_cooldown(
+                    selected,
+                    config.routing.runtime_cooldown_seconds,
+                )
+                excluded_routes.add(route_key(selected))
+                last_error = exc
+                continue
+            _raise_runtime_http_error(exc)
+
+        usage = upstream_response.get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        total_tokens = int(
+            usage.get("total_tokens") or prompt_tokens + completion_tokens
+        )
+        usage_manager.record_usage(
+            provider=selected.provider,
+            key_id=selected.key_id,
+            model_name=selected.model_name,
+            quota_date=quota_date,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        _log_chat_request(
+            usage_manager=usage_manager,
+            request_id=upstream_response.get("id", request_id),
+            selected=selected,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            status="ok",
+            error_message=None,
+            started_at=request_started_at,
+        )
+
+        return JSONResponse(
+            content=upstream_response,
+            headers=_router_headers(request_payload, selected),
+        )
+
+
+def _prepare_chat_attempt(
+    config: AppConfig,
+    selector: RouteSelector,
+    request_payload: ChatCompletionRequest,
+    quota_date: str,
+    excluded_routes: set[tuple[str, str, str, str]],
+) -> tuple[SelectedRoute, EndpointConfig, ApiKeyConfig, dict[str, Any]]:
+    selected = selector.select(
+        model=request_payload.model,
+        router=request_payload.router,
+        quota_date=quota_date,
+        excluded_routes=excluded_routes,
+    )
     provider_config = config.providers[selected.provider]
     endpoint_config = provider_config.get_endpoint(selected.endpoint)
     api_key = _find_api_key(endpoint_config, selected.key_id)
@@ -74,74 +191,97 @@ async def chat_completions(
         endpoint_config,
     )
     _apply_router_thinking_options(outgoing_payload, request_payload.router, selected)
+    return selected, endpoint_config, api_key, outgoing_payload
 
-    request_id = str(uuid4())
-    started_at = perf_counter()
-    if outgoing_payload.get("stream") is True:
+
+async def _open_chat_stream_with_fallback(
+    request_payload: ChatCompletionRequest,
+    request: Request,
+    config: AppConfig,
+    usage_manager: UsageManager,
+    runtime_state: RuntimeRouteState,
+    selector: RouteSelector,
+    quota_date: str,
+    request_id: str,
+    excluded_routes: set[tuple[str, str, str, str]],
+) -> tuple[SelectedRoute, AsyncIterator[bytes], bytes | None]:
+    last_error: httpx.HTTPError | None = None
+    while True:
+        try:
+            selected, endpoint_config, api_key, outgoing_payload = _prepare_chat_attempt(
+                config=config,
+                selector=selector,
+                request_payload=request_payload,
+                quota_date=quota_date,
+                excluded_routes=excluded_routes,
+            )
+        except NoAvailableModelError as exc:
+            if last_error is not None:
+                _raise_runtime_http_error(last_error)
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
+
         outgoing_payload = apply_stream_usage_policy(
             outgoing_payload,
             endpoint_config.stream_usage_mode,
         )
-        stream = request.app.state.provider.chat_completion_stream(
-            endpoint_config,
-            api_key,
-            outgoing_payload,
-        )
-        return StreamingResponse(
-            _stream_and_record_usage(
-                stream=stream,
+        attempt_started_at = perf_counter()
+        try:
+            stream = request.app.state.provider.chat_completion_stream(
+                endpoint_config,
+                api_key,
+                outgoing_payload,
+            )
+            first_chunk = await anext(stream)
+        except StopAsyncIteration:
+            return selected, stream, None
+        except httpx.HTTPError as exc:
+            _log_chat_request(
                 usage_manager=usage_manager,
                 request_id=request_id,
                 selected=selected,
-                quota_date=quota_date,
-                started_at=started_at,
-            ),
-            media_type="text/event-stream",
-            headers=_router_headers(request_payload, selected),
-        )
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                status="error",
+                error_message=str(exc),
+                started_at=attempt_started_at,
+            )
+            if is_retryable_runtime_error(exc):
+                runtime_state.mark_cooldown(
+                    selected,
+                    config.routing.runtime_cooldown_seconds,
+                )
+                excluded_routes.add(route_key(selected))
+                last_error = exc
+                continue
+            _raise_runtime_http_error(exc)
 
-    try:
-        upstream_response: dict[str, Any] = await request.app.state.provider.chat_completion(
-            endpoint_config,
-            api_key,
-            outgoing_payload,
-        )
-    except httpx.HTTPStatusError as exc:
-        latency_ms = int((perf_counter() - started_at) * 1000)
-        usage_manager.log_request(
-            request_id=request_id,
-            provider=selected.provider,
-            key_id=selected.key_id,
-            model_name=selected.model_name,
-            level=selected.level,
-            prompt_tokens=0,
-            completion_tokens=0,
-            total_tokens=0,
-            status="error",
-            error_message=str(exc),
-            latency_ms=latency_ms,
-        )
+        return selected, stream, first_chunk
+
+
+def _raise_runtime_http_error(exc: httpx.HTTPError) -> None:
+    if isinstance(exc, httpx.HTTPStatusError):
         raise HTTPException(
             status_code=exc.response.status_code,
             detail=exc.response.text,
         ) from exc
+    raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    usage = upstream_response.get("usage") or {}
-    prompt_tokens = int(usage.get("prompt_tokens") or 0)
-    completion_tokens = int(usage.get("completion_tokens") or 0)
-    total_tokens = int(usage.get("total_tokens") or prompt_tokens + completion_tokens)
-    usage_manager.record_usage(
-        provider=selected.provider,
-        key_id=selected.key_id,
-        model_name=selected.model_name,
-        quota_date=quota_date,
-        prompt_tokens=prompt_tokens,
-        completion_tokens=completion_tokens,
-    )
 
+def _log_chat_request(
+    usage_manager: UsageManager,
+    request_id: str,
+    selected: SelectedRoute,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+    status: str,
+    error_message: str | None,
+    started_at: float,
+) -> None:
     latency_ms = int((perf_counter() - started_at) * 1000)
     usage_manager.log_request(
-        request_id=upstream_response.get("id", request_id),
+        request_id=request_id,
         provider=selected.provider,
         key_id=selected.key_id,
         model_name=selected.model_name,
@@ -149,14 +289,9 @@ async def chat_completions(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=total_tokens,
-        status="ok",
-        error_message=None,
+        status=status,
+        error_message=error_message,
         latency_ms=latency_ms,
-    )
-
-    return JSONResponse(
-        content=upstream_response,
-        headers=_router_headers(request_payload, selected),
     )
 
 
@@ -265,6 +400,7 @@ def _apply_router_thinking_options(
 
 async def _stream_and_record_usage(
     stream: AsyncIterator[bytes],
+    first_chunk: bytes | None,
     usage_manager: UsageManager,
     request_id: str,
     selected: SelectedRoute,
@@ -276,6 +412,11 @@ async def _stream_and_record_usage(
     status = "ok"
     error_message = None
     try:
+        if first_chunk is not None:
+            usage = usage_tracker.feed(first_chunk)
+            if usage is not None:
+                latest_usage = usage
+            yield first_chunk
         async for chunk in stream:
             usage = usage_tracker.feed(chunk)
             if usage is not None:

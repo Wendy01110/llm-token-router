@@ -1,13 +1,13 @@
 ---
 name: use-local-llm-token-router
-description: Use when integrating a personal development project with Wendy's local llm-token-router, OpenAI-compatible Chat Completions, model auto routing, router.provider, max_completion_tokens, reasoning_effort, stream_options.include_usage, or local base_url http://127.0.0.1:8000/v1.
+description: Use when integrating a personal development project with Wendy's local llm-token-router, OpenAI-compatible Chat Completions, native Responses API routing, model auto routing, router.provider, max_completion_tokens, reasoning_effort, stream_options.include_usage, runtime fallback, or local base_url http://127.0.0.1:8000/v1.
 ---
 
 # Use Local LLM Token Router
 
 ## Overview
 
-Use the local `llm-token-router` as an OpenAI-compatible Chat Completions provider. Prefer `model: "auto"` so the router can select providers, manage quota, and adapt standard OpenAI parameters after model selection.
+Use the local `llm-token-router` as an OpenAI-compatible Chat Completions provider and as a native Responses API proxy for providers that support `/responses`. Prefer `model: "auto"` so the router can select providers, manage quota, apply runtime fallback, and adapt standard OpenAI parameters after model selection.
 
 ## Source Of Truth
 
@@ -63,6 +63,21 @@ Streaming requests may include usage options:
 
 Only send `stream_options` with `stream: true`.
 
+For Codex or clients that require the Responses API, use `/v1/responses` with `model: "auto"`. The router only sends these requests to endpoints configured with `responses_api: native`; it does not synthesize Responses output from Chat Completions.
+
+```json
+{
+  "model": "auto",
+  "input": "Reply with OK.",
+  "stream": true,
+  "router": {
+    "level": 1,
+    "provider": "auto",
+    "fallback": true
+  }
+}
+```
+
 ## Parameter Quick Reference
 
 OpenAI-standard request fields to prefer for normal automatic routes:
@@ -94,11 +109,20 @@ Router-specific fields under `router`:
 
 Default behavior: missing optional OpenAI fields are not injected. The router translates or removes only fields that the client sends, except streaming usage policy may add `stream_options.include_usage` for endpoints configured to require it.
 
+## Runtime Fallback
+
+Local quota records do not fully capture upstream TPS/RPM pressure. At runtime, the router falls back to another eligible route when an upstream call fails with `429`, `5xx`, network errors, or timeouts. The failed `(provider, endpoint, key_id, model)` enters an in-process cooldown controlled by `routing.runtime_cooldown_seconds` (default `30`).
+
+Do not expect fallback for request/authentication errors such as `400`, `401`, or `403`; those are returned to the client. Streaming fallback is only available before the first upstream SSE chunk is sent to the client. Once the stream has started, the router keeps that stream on the selected route.
+
+Native Responses requests use the same runtime fallback behavior, but only among endpoints configured with `responses_api: native`.
+
 ## Integration Rules
 
 - Set `base_url` to `http://127.0.0.1:8000/v1` by default.
 - Use any non-empty placeholder API key unless the target project enforces its own client key convention.
 - Use `model: "auto"` for normal application code.
+- Use `model: "auto"` for Codex Responses API profiles too; the router will choose only native Responses-capable endpoints for `/v1/responses`.
 - Put router controls in the request body under `router`; the local router removes this field before calling upstream providers.
 - Leave `router.provider` absent or set to `"auto"` to allow OpenAI-standard parameter adaptation.
 - Use explicit `router.provider` only for debugging, benchmarking, or forcing a vendor path. In explicit-provider calls, standard fields are intentionally passed through.
@@ -166,6 +190,19 @@ curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
+For native Responses clients:
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "input": "Reply with OK.",
+    "stream": false,
+    "router": {"level": 1, "provider": "auto", "fallback": true}
+  }'
+```
+
 ## Smoke Tests
 
 Real tests depend on the user's local service, ports, credentials, and upstream provider state. In other projects, provide these commands and expected signals instead of running them unless the user explicitly asks.
@@ -194,6 +231,20 @@ curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
 ```
 
 Success: HTTP 200, a normal Chat Completions response, and `X-Router-*` headers when using a raw-response client.
+
+Responses check:
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "input": "Reply with OK.",
+    "router": {"level": 1, "provider": "auto", "fallback": true, "debug": true}
+  }'
+```
+
+Success: HTTP 200 and a native Responses object from an endpoint marked `responses_api: native`.
 
 ## Keeping This Skill Current
 

@@ -172,3 +172,16 @@ def test_selector_expands_multiple_keys_from_one_model_instance():
     assert selected.daily_quota == 200
     assert selected.daily_request_quota is None
     assert selected.priority == 20
+
+
+def test_selector_skips_excluded_runtime_route():
+    selector = RouteSelector(make_config(), FakeUsageManager({}))
+
+    selected = selector.select(
+        model="auto",
+        router={"level": 1},
+        quota_date="2026-05-27",
+        excluded_routes={("test", "default", "k1", "model-a")},
+    )
+
+    assert selected.key_id == "k2"

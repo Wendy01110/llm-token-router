@@ -6,6 +6,7 @@ routing:
   default_level: 1
   fallback_enabled: true
   max_fallback_level: 5
+  runtime_cooldown_seconds: 30
 
 providers:
   xiaomi_mimo:

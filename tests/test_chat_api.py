@@ -1,7 +1,26 @@
+import httpx
 from fastapi.testclient import TestClient
 
 from token_router.app.config import ModelInstanceConfig
+from token_router.app.database import connect
 from token_router.app.main import create_app
+
+
+def _status_error(status_code=429, text="rate limited"):
+    request = httpx.Request("POST", "https://upstream.test/v1/chat/completions")
+    response = httpx.Response(status_code, text=text, request=request)
+    return httpx.HTTPStatusError(text, request=request, response=response)
+
+
+def _request_logs(usage_manager):
+    with connect(usage_manager.db_path) as connection:
+        return connection.execute(
+            """
+            SELECT provider_name, key_id, model_name, status
+            FROM request_logs
+            ORDER BY id
+            """
+        ).fetchall()
 
 
 class FakeProvider:
@@ -113,6 +132,65 @@ class RecordingProvider:
         }
 
 
+class RuntimeFallbackProvider:
+    def __init__(self, first_status_code=429):
+        self.first_status_code = first_status_code
+        self.models = []
+
+    async def chat_completion(self, provider_config, api_key, payload):
+        self.models.append(payload["model"])
+        if payload["model"] == "model-a":
+            raise _status_error(self.first_status_code)
+        return {
+            "id": "chatcmpl-fallback",
+            "object": "chat.completion",
+            "model": payload["model"],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "ok"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 4,
+                "completion_tokens": 2,
+                "total_tokens": 6,
+            },
+        }
+
+
+class RuntimeFallbackStreamingProvider:
+    def __init__(self):
+        self.models = []
+
+    async def chat_completion_stream(self, provider_config, api_key, payload):
+        self.models.append(payload["model"])
+        if payload["model"] == "model-a":
+            raise _status_error(429)
+        yield b'data: {"choices":[{"delta":{"content":"O"}}],"usage":null}\n\n'
+        yield b'data: {"choices":[{"delta":{"content":"K"}}],"usage":null}\n\n'
+        yield (
+            b'data: {"choices":[],"usage":'
+            b'{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n'
+        )
+        yield b"data: [DONE]\n\n"
+
+
+def _add_runtime_fallback_model(app_config):
+    app_config.model_instances.append(
+        ModelInstanceConfig(
+            name="model-b",
+            provider="test",
+            endpoint="api",
+            level=2,
+            priority=10,
+            keys=[{"key_id": "k1", "daily_quota": 100}],
+            groups=["general"],
+        )
+    )
+
+
 def test_chat_endpoint_routes_and_records_usage(
     app_config, usage_manager, fixed_now
 ):
@@ -165,6 +243,75 @@ def test_chat_endpoint_counts_successful_request_without_usage(
     assert usage.request_count == 1
 
 
+def test_chat_endpoint_falls_back_on_retryable_runtime_error_and_cools_route(
+    app_config, usage_manager, fixed_now
+):
+    _add_runtime_fallback_model(app_config)
+    provider = RuntimeFallbackProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    first_response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hello"}],
+            "router": {"level": 1},
+        },
+    )
+    second_response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hello again"}],
+            "router": {"level": 1},
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert provider.models == ["model-a", "model-b", "model-b"]
+    usage_a = usage_manager.get_usage("test", "k1", "model-a", "2026-05-27")
+    usage_b = usage_manager.get_usage("test", "k1", "model-b", "2026-05-27")
+    assert usage_a.request_count == 0
+    assert usage_b.request_count == 2
+    logs = _request_logs(usage_manager)
+    assert [log["status"] for log in logs] == ["error", "ok", "ok"]
+    assert logs[0]["model_name"] == "model-a"
+
+
+def test_chat_endpoint_does_not_fallback_on_non_retryable_runtime_error(
+    app_config, usage_manager, fixed_now
+):
+    _add_runtime_fallback_model(app_config)
+    provider = RuntimeFallbackProvider(first_status_code=400)
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hello"}],
+            "router": {"level": 1},
+        },
+    )
+
+    assert response.status_code == 400
+    assert provider.models == ["model-a"]
+    assert _request_logs(usage_manager)[0]["status"] == "error"
+
+
 def test_chat_endpoint_streams_sse_and_records_usage(
     app_config, usage_manager, fixed_now
 ):
@@ -197,6 +344,42 @@ def test_chat_endpoint_streams_sse_and_records_usage(
     assert usage.completion_tokens == 2
     assert usage.total_tokens == 5
     assert usage.request_count == 1
+
+
+def test_chat_endpoint_stream_falls_back_before_first_chunk(
+    app_config, usage_manager, fixed_now
+):
+    _add_runtime_fallback_model(app_config)
+    provider = RuntimeFallbackStreamingProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": True,
+            "router": {"level": 1},
+        },
+    ) as response:
+        body = b"".join(response.iter_bytes())
+
+    assert response.status_code == 200
+    assert provider.models == ["model-a", "model-b"]
+    assert body.endswith(b"data: [DONE]\n\n")
+    usage_a = usage_manager.get_usage("test", "k1", "model-a", "2026-05-27")
+    usage_b = usage_manager.get_usage("test", "k1", "model-b", "2026-05-27")
+    assert usage_a.request_count == 0
+    assert usage_b.request_count == 1
+    logs = _request_logs(usage_manager)
+    assert [log["status"] for log in logs] == ["error", "ok"]
 
 
 def test_chat_endpoint_stream_counts_request_when_usage_missing(

@@ -31,6 +31,7 @@ class RoutingConfig(BaseModel):
     default_level: int = Field(default=1, ge=1)
     fallback_enabled: bool = True
     max_fallback_level: int = Field(default=5, ge=1)
+    runtime_cooldown_seconds: float = Field(default=30, ge=0)
 
 
 class ApiKeyConfig(BaseModel):

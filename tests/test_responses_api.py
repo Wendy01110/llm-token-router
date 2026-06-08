@@ -1,10 +1,17 @@
 import json
 
+import httpx
 from fastapi.testclient import TestClient
 
 from token_router.app.config import ApiKeyConfig, EndpointConfig, ModelInstanceConfig
 from token_router.app.database import connect
 from token_router.app.main import create_app
+
+
+def _status_error(status_code=429, text="rate limited"):
+    request = httpx.Request("POST", "https://responses.test/v1/responses")
+    response = httpx.Response(status_code, text=text, request=request)
+    return httpx.HTTPStatusError(text, request=request, response=response)
 
 
 class RecordingNativeResponsesProvider:
@@ -66,6 +73,45 @@ class ChatOnlyProvider:
         raise AssertionError("responses endpoint must not use chat_completion_stream")
 
 
+class RuntimeFallbackNativeResponsesProvider:
+    def __init__(self):
+        self.models = []
+        self.stream_models = []
+
+    async def responses(self, provider_config, api_key, payload):
+        self.models.append(payload["model"])
+        if payload["model"] == "native-a":
+            raise _status_error(429)
+        return {
+            "id": "resp_fallback",
+            "object": "response",
+            "created_at": 1780000000,
+            "status": "completed",
+            "model": payload["model"],
+            "output": [],
+            "usage": {
+                "input_tokens": 6,
+                "output_tokens": 4,
+                "total_tokens": 10,
+            },
+        }
+
+    async def responses_stream(self, provider_config, api_key, payload):
+        self.stream_models.append(payload["model"])
+        if payload["model"] == "native-a":
+            raise _status_error(429)
+        yield b'event: response.created\ndata: {"type":"response.created"}\n\n'
+        yield (
+            b'event: response.output_text.delta\n'
+            b'data: {"type":"response.output_text.delta","delta":"O"}\n\n'
+        )
+        yield (
+            b'event: response.completed\n'
+            b'data: {"type":"response.completed","response":'
+            b'{"usage":{"input_tokens":6,"output_tokens":4,"total_tokens":10}}}\n\n'
+        )
+
+
 def _request_logs(usage_manager):
     with connect(usage_manager.db_path) as connection:
         return connection.execute(
@@ -93,6 +139,28 @@ def _enable_native_responses_endpoint(app_config):
         keys=[{"key_id": "native-key", "daily_quota": 100}],
         groups=["general"],
     )
+
+
+def _enable_two_native_responses_models(app_config):
+    _enable_native_responses_endpoint(app_config)
+    app_config.model_instances = [
+        ModelInstanceConfig(
+            name="native-a",
+            provider="native",
+            endpoint="api",
+            level=1,
+            keys=[{"key_id": "native-key", "daily_quota": 100}],
+            groups=["general"],
+        ),
+        ModelInstanceConfig(
+            name="native-b",
+            provider="native",
+            endpoint="api",
+            level=2,
+            keys=[{"key_id": "native-key", "daily_quota": 100}],
+            groups=["general"],
+        ),
+    ]
 
 
 def test_responses_endpoint_proxies_native_response_and_records_usage(
@@ -139,6 +207,40 @@ def test_responses_endpoint_proxies_native_response_and_records_usage(
     assert len(logs) == 1
     assert logs[0]["status"] == "ok"
     assert logs[0]["total_tokens"] == 12
+
+
+def test_responses_endpoint_falls_back_on_retryable_runtime_error(
+    app_config, usage_manager, fixed_now
+):
+    _enable_two_native_responses_models(app_config)
+    provider = RuntimeFallbackNativeResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/responses",
+        json={"model": "auto", "input": "hello", "router": {"level": 1}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "native-b"
+    assert provider.models == ["native-a", "native-b"]
+    usage_a = usage_manager.get_usage(
+        "native", "native-key", "native-a", "2026-05-27"
+    )
+    usage_b = usage_manager.get_usage(
+        "native", "native-key", "native-b", "2026-05-27"
+    )
+    assert usage_a.request_count == 0
+    assert usage_b.request_count == 1
+    logs = _request_logs(usage_manager)
+    assert [log["status"] for log in logs] == ["error", "ok"]
+    assert logs[0]["model_name"] == "native-a"
 
 
 def test_responses_endpoint_skips_unsupported_lower_level_model(
@@ -249,3 +351,43 @@ def test_responses_endpoint_streams_native_events_and_records_usage(
     assert usage.prompt_tokens == 7
     assert usage.completion_tokens == 5
     assert usage.request_count == 1
+
+
+def test_responses_endpoint_stream_falls_back_before_first_chunk(
+    app_config, usage_manager, fixed_now
+):
+    _enable_two_native_responses_models(app_config)
+    provider = RuntimeFallbackNativeResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/v1/responses",
+        json={
+            "model": "auto",
+            "input": "hello",
+            "stream": True,
+            "router": {"level": 1},
+        },
+    ) as response:
+        body = b"".join(response.iter_bytes())
+
+    assert response.status_code == 200
+    assert provider.stream_models == ["native-a", "native-b"]
+    assert b"event: response.output_text.delta" in body
+    usage_a = usage_manager.get_usage(
+        "native", "native-key", "native-a", "2026-05-27"
+    )
+    usage_b = usage_manager.get_usage(
+        "native", "native-key", "native-b", "2026-05-27"
+    )
+    assert usage_a.request_count == 0
+    assert usage_b.request_count == 1
+    logs = _request_logs(usage_manager)
+    assert [log["status"] for log in logs] == ["error", "ok"]

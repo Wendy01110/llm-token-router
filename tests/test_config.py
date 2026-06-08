@@ -125,6 +125,7 @@ def test_config_example_uses_current_local_providers(monkeypatch):
 
     config = load_config("config.example.yaml")
 
+    assert config.routing.runtime_cooldown_seconds == 30
     assert set(config.providers) == {
         "xiaomi_mimo",
         "volcengine_ark",

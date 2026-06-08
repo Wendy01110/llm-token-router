@@ -261,6 +261,12 @@ curl -s http://127.0.0.1:8000/v1/chat/completions \
 
 router 会在选好模型后，把这些标准字段转换成最终 provider 支持的形态。显式指定 `router.provider` 时，除 `router.thinking` 外，标准字段保持透传，便于直接调试某个供应商。`stream_options` 只应随 `stream: true` 发送；自动路由的非流式请求会移除这个字段。
 
+### Runtime fallback 与 cooldown
+
+除本地配额外，router 还会处理上游运行时瞬时失败：`429`、`5xx`、网络错误和超时会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在本次请求内继续选择下一个可用 route。`400`、`401`、`403` 等请求或鉴权错误不会 fallback，会直接返回给调用方。
+
+默认 cooldown 为 `routing.runtime_cooldown_seconds: 30`。非流式 Chat Completions 和原生 Responses 都支持 runtime fallback；流式请求只支持“首包前 fallback”，一旦已有 SSE chunk 发给客户端，就不会在同一个流里切换模型。
+
 ### 流式响应
 
 当客户端传 `stream: true` 时，router 会以 `text/event-stream` 返回 OpenAI 兼容 SSE，并把上游 `data:` frame 转发给客户端。若上游 stream 中出现非空 `usage`，router 会用最后一次看到的 usage 记录 token 用量；如果 stream 结束前没有 usage，也会记录 1 次请求，token 用量记 0。
@@ -295,7 +301,7 @@ curl --no-buffer http://127.0.0.1:8000/v1/chat/completions \
 {provider.base_url}/responses
 ```
 
-流式请求会原样透传上游 Responses SSE。router 会从非流式 `usage.input_tokens/output_tokens`，或流式 `response.completed.response.usage` 中记录本地 usage；如果上游没有返回 usage，也会记录一次请求且 token 记 0。
+流式请求会原样透传上游 Responses SSE。router 会从非流式 `usage.input_tokens/output_tokens`，或流式 `response.completed.response.usage` 中记录本地 usage；如果上游没有返回 usage，也会记录一次请求且 token 记 0。Responses 同样支持运行时 fallback 和 cooldown，但只会在标记为 `responses_api: native` 的候选 endpoint 之间切换。
 
 当前配置里的 Responses 支持情况：
 
@@ -549,7 +555,7 @@ http://127.0.0.1:8000/admin/usage
 
 - Provider adapter 默认面向 OpenAI 兼容接口。
 - API key 从本地 `.env` 和 `config.yaml` 读取。
-- 暂无 Web UI、用户鉴权、Redis 锁、失败重试和 cooldown 策略。
+- 暂无 Web UI、用户鉴权和 Redis 锁；runtime cooldown 仅保存在当前进程内。
 
 ## 每日模型质量评测
 
