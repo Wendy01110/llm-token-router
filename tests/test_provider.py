@@ -97,3 +97,73 @@ def test_provider_streams_raw_sse_bytes():
 
     assert b"".join(chunks).endswith(b"data: [DONE]\n\n")
     assert captured["headers"]["authorization"] == "Bearer sk-test"
+
+
+def test_provider_posts_native_responses_endpoint():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["body"] = request.read()
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp_test",
+                "object": "response",
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 2,
+                    "total_tokens": 5,
+                },
+            },
+        )
+
+    provider = OpenAICompatibleProvider(transport=httpx.MockTransport(handler))
+    config = ProviderConfig(
+        type="openai_compatible",
+        base_url="https://example.test/v1",
+        keys=[ApiKeyConfig(id="test", value="sk-test")],
+    )
+
+    result = asyncio.run(
+        provider.responses(
+            config,
+            config.keys[0],
+            {"model": "model-a", "input": "hello"},
+        )
+    )
+
+    assert captured["url"] == "https://example.test/v1/responses"
+    assert result["id"] == "resp_test"
+
+
+def test_provider_streams_native_responses_sse_bytes():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=b'event: response.completed\ndata: {"type":"response.completed"}\n\n',
+        )
+
+    provider = OpenAICompatibleProvider(transport=httpx.MockTransport(handler))
+    config = ProviderConfig(
+        type="openai_compatible",
+        base_url="https://example.test/v1",
+        keys=[ApiKeyConfig(id="test", value="sk-test")],
+    )
+
+    chunks = asyncio.run(
+        _collect_stream(
+            provider.responses_stream(
+                config,
+                config.keys[0],
+                {"model": "model-a", "input": "hello", "stream": True},
+            )
+        )
+    )
+
+    assert captured["url"] == "https://example.test/v1/responses"
+    assert b"".join(chunks).startswith(b"event: response.completed")

@@ -10,7 +10,7 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 
-from token_router.app.api import admin, chat, health, reports
+from token_router.app.api import admin, chat, health, reports, responses
 from token_router.app.config import AppConfig, load_config
 from token_router.app.daily_eval import start_daily_eval_scheduler
 from token_router.app.database import init_db
@@ -61,6 +61,7 @@ def create_app(
     app.include_router(reports.router)
     app.include_router(admin.router)
     app.include_router(chat.router)
+    app.include_router(responses.router)
     return app
 
 

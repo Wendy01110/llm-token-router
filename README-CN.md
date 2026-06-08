@@ -287,6 +287,25 @@ curl --no-buffer http://127.0.0.1:8000/v1/chat/completions \
 - 输出包含 `data:` frame，并以 `data: [DONE]` 结束。
 - `/admin/usage` 中对应 key 的请求次数会增加。
 
+## Responses API
+
+`POST /v1/responses` 只代理到上游原生 Responses API，不做 Chat Completions shim。router 会先按模型、provider、level、fallback 和配额选择路由，但只会选择 `responses_api: native` 的 endpoint；选中后移除本地 `router` 字段，把 `model` 替换成实际上游模型名，然后调用：
+
+```text
+{provider.base_url}/responses
+```
+
+流式请求会原样透传上游 Responses SSE。router 会从非流式 `usage.input_tokens/output_tokens`，或流式 `response.completed.response.usage` 中记录本地 usage；如果上游没有返回 usage，也会记录一次请求且 token 记 0。
+
+当前配置里的 Responses 支持情况：
+
+| Provider | 当前状态 | 说明 |
+| --- | --- | --- |
+| `volcengine_ark` | 支持，已启用 | 火山方舟官方提供 `POST https://ark.cn-beijing.volces.com/api/v3/responses`，支持流式和 `previous_response_id`。 |
+| `openrouter` | 支持，已启用 | OpenRouter 官方提供 beta `/api/v1/responses`；它是 stateless，调用方需要自行带完整历史。 |
+| `xiaomi_mimo` | 未启用 | 当前官方 OpenAI-compatible 文档只列出 `/v1/chat/completions`。 |
+| `agnes` | 未启用 | 当前可查文档只确认 OpenAI Chat Completions 兼容。 |
+
 ## OpenAI SDK 调用示例
 
 启动本地 router 后，可以用 OpenAI Python SDK 直接测试 OpenAI 兼容接口。这个脚本会请求本地 `http://127.0.0.1:8000/v1/chat/completions`，再打印模型回复、usage 和 `X-Router-*` headers。

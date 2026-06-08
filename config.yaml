@@ -34,9 +34,12 @@ providers:
       api:
         base_url: ${ARK_BASE_URL}
         auth_header: authorization_bearer
+        responses_api: native
         keys:
           - id: volcengine_ark_1
             value: ${ARK_API_KEY}
+          - id: volcengine_ark_2
+            value: ${ARK_API_KEY_2}
 
   agnes:
     type: openai_compatible
@@ -56,6 +59,7 @@ providers:
       api:
         base_url: ${OPENROUTER_BASE_URL}
         auth_header: authorization_bearer
+        responses_api: native
         keys:
           - id: openrouter_1
             value: ${OPENROUTER_API_KEY}
@@ -81,6 +85,9 @@ model_instances:
       - key_id: volcengine_ark_1
         daily_quota: 1600000
         priority: 20
+      - key_id: volcengine_ark_2
+        daily_quota: 1600000
+        priority: 20
     groups: [reasoning, general]
 
   - name: doubao-seed-2-0-code-preview-260215
@@ -90,7 +97,10 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1600000
-        priority: 30
+        priority: 20
+      - key_id: volcengine_ark_2
+        daily_quota: 1600000
+        priority: 20
     groups: [reasoning, coding, general]
 
   - name: glm-4-7-251222
@@ -100,7 +110,10 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1600000
-        priority: 60
+        priority: 30
+      - key_id: volcengine_ark_2
+        daily_quota: 1600000
+        priority: 30
     groups: [general, fallback]
 
   - name: deepseek-v3-2-251201
@@ -110,7 +123,10 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1600000
-        priority: 70
+        priority: 40
+      - key_id: volcengine_ark_2
+        daily_quota: 1600000
+        priority: 40
     groups: [general, coding, fallback]
 
   - name: doubao-seed-2-0-lite-260428
@@ -120,7 +136,10 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1600000
-        priority: 40
+        priority: 50
+      - key_id: volcengine_ark_2
+        daily_quota: 1600000
+        priority: 50
     groups: [reasoning, general, fallback]
 
   - name: doubao-seed-2-0-mini-260428
@@ -130,7 +149,7 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1600000
-        priority: 50
+        priority: 60
     groups: [reasoning, general, fallback]
 
   - name: ${AGNES_MODEL}

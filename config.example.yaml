@@ -34,6 +34,7 @@ providers:
       api:
         base_url: ${ARK_BASE_URL}
         auth_header: authorization_bearer
+        responses_api: native
         keys:
           - id: volcengine_ark_1
             value: ${ARK_API_KEY}
@@ -56,6 +57,7 @@ providers:
       api:
         base_url: ${OPENROUTER_BASE_URL}
         auth_header: authorization_bearer
+        responses_api: native
         keys:
           - id: openrouter_1
             value: ${OPENROUTER_API_KEY}

@@ -19,6 +19,7 @@ StreamUsageMode = Literal[
     "final_chunk_usage",
     "parse_only",
 ]
+ResponsesApiMode = Literal["unsupported", "native"]
 
 
 class RefreshConfig(BaseModel):
@@ -41,6 +42,7 @@ class EndpointConfig(BaseModel):
     base_url: str
     auth_header: Literal["authorization_bearer", "api_key"] = "authorization_bearer"
     stream_usage_mode: StreamUsageMode | None = None
+    responses_api: ResponsesApiMode | None = None
     keys: list[ApiKeyConfig]
 
 
@@ -49,6 +51,7 @@ class ProviderConfig(BaseModel):
     base_url: str | None = None
     auth_header: Literal["authorization_bearer", "api_key"] = "authorization_bearer"
     stream_usage_mode: StreamUsageMode = "parse_only"
+    responses_api: ResponsesApiMode = "unsupported"
     keys: list[ApiKeyConfig] = Field(default_factory=list)
     endpoints: dict[str, EndpointConfig] = Field(default_factory=dict)
 
@@ -67,8 +70,12 @@ class ProviderConfig(BaseModel):
             except KeyError as exc:
                 raise KeyError(f"unknown endpoint {endpoint!r}") from exc
             if endpoint_config.stream_usage_mode is None:
-                return endpoint_config.model_copy(
+                endpoint_config = endpoint_config.model_copy(
                     update={"stream_usage_mode": self.stream_usage_mode}
+                )
+            if endpoint_config.responses_api is None:
+                endpoint_config = endpoint_config.model_copy(
+                    update={"responses_api": self.responses_api}
                 )
             return endpoint_config
         if endpoint != "default":
@@ -79,6 +86,7 @@ class ProviderConfig(BaseModel):
             base_url=self.base_url,
             auth_header=self.auth_header,
             stream_usage_mode=self.stream_usage_mode,
+            responses_api=self.responses_api,
             keys=self.keys,
         )
 

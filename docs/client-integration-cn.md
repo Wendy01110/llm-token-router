@@ -103,6 +103,43 @@ curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
 - 非流式请求里的 `stream_options` 会在自动路由时移除，避免发给不接受该字段的上游。
 - `reasoning_effort` 会在自动路由时转成 OpenRouter 的 `reasoning.effort`，或转成 MiMo/Ark 的 `thinking.type`。如果同时传 `router.thinking`，以 `router.thinking` 为准。
 
+## Responses API
+
+调用方可以请求本地：
+
+```text
+POST http://127.0.0.1:8000/v1/responses
+```
+
+这个接口只做原生 Responses 代理：router 仍负责选模型、选 key、检查配额、记录 usage，但不会把 Responses 请求转换成 Chat Completions。只有配置了 `responses_api: native` 的 endpoint 会进入候选，当前是 `volcengine_ark` 和 `openrouter`。
+
+示例：
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "input": "Reply with OK.",
+    "max_output_tokens": 64,
+    "router": {
+      "provider": "volcengine_ark",
+      "level": 1,
+      "fallback": true,
+      "debug": true
+    }
+  }'
+```
+
+当前能力表：
+
+| Provider | `/v1/responses` 状态 | 备注 |
+| --- | --- | --- |
+| `volcengine_ark` | 原生支持，已启用 | 方舟官方 Responses API 支持创建、查询、上下文、删除和流式响应。 |
+| `openrouter` | 原生支持，已启用 | OpenRouter Responses API 仍是 beta，并且是 stateless；不要依赖服务端保存 `previous_response_id` 状态。 |
+| `xiaomi_mimo` | 未启用 | 当前官方兼容文档只列出 Chat Completions endpoint。 |
+| `agnes` | 未启用 | 当前可查文档只确认 OpenAI Chat Completions 兼容。 |
+
 ## OpenAI Python SDK
 
 调用方项目安装 OpenAI SDK：

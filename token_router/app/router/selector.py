@@ -27,6 +27,7 @@ class RouteSelector:
         model: str,
         router: Mapping[str, Any] | None,
         quota_date: str,
+        responses_api: str | None = None,
     ) -> SelectedRoute:
         router_options = dict(router or {})
         requested_model = None if model == "auto" else model
@@ -36,6 +37,7 @@ class RouteSelector:
             requested_model=requested_model,
             router_options=router_options,
             quota_date=quota_date,
+            responses_api=responses_api,
         )
         if selected is not None:
             return selected
@@ -45,6 +47,7 @@ class RouteSelector:
                 requested_model=None,
                 router_options=router_options,
                 quota_date=quota_date,
+                responses_api=responses_api,
             )
             if selected is not None:
                 return selected
@@ -63,6 +66,7 @@ class RouteSelector:
         requested_model: str | None,
         router_options: Mapping[str, Any],
         quota_date: str,
+        responses_api: str | None = None,
     ) -> SelectedRoute | None:
         candidates = []
         levels = set(self._candidate_levels(router_options))
@@ -79,6 +83,12 @@ class RouteSelector:
                 continue
             if model_group and model_group not in instance.groups:
                 continue
+            if responses_api is not None:
+                endpoint = self.config.providers[instance.provider].get_endpoint(
+                    instance.endpoint
+                )
+                if endpoint.responses_api != responses_api:
+                    continue
 
             for key_config in instance.iter_key_configs():
                 route = self._build_route(instance, key_config, quota_date)
