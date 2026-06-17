@@ -455,12 +455,19 @@ async def run_daily_eval_scheduler(
         await sleep_fn(delay_seconds)
 
         try:
+            run_time = current_time()
+            local_run_time = (
+                run_time.astimezone(next_run.tzinfo)
+                if run_time.tzinfo
+                else run_time.replace(tzinfo=next_run.tzinfo)
+            )
+            effective_run_time = next_run if local_run_time < next_run else local_run_time
             await run_eval(
                 config=config,
                 usage_manager=usage_manager,
                 tavily_api_key=tavily_api_key,
                 reports_dir=reports_dir,
-                now=current_time(),
+                now=effective_run_time,
                 max_tokens=max_tokens,
                 concurrency=concurrency,
             )
@@ -661,9 +668,10 @@ def _render_markdown_report(result: DailyEvalResult) -> str:
             f"{item.total_tokens} |"
         )
     for item in result.model_results:
-        if item.summary:
+        detail = item.error_message or item.summary
+        if detail:
             lines.extend(["", f"### {item.provider} / {item.model_name} / {item.key_id}", ""])
-            lines.append(item.summary)
+            lines.append(detail)
     return "\n".join(lines) + "\n"
 
 

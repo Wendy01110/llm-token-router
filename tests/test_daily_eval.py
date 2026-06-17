@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
 from fastapi.testclient import TestClient
 
 from token_router.app.config import (
@@ -31,6 +32,7 @@ from token_router.app.daily_eval import (
     render_daily_eval_home,
     run_model_eval,
     run_model_evals,
+    run_daily_eval_scheduler,
     start_daily_eval_scheduler,
     write_daily_eval_report,
 )
@@ -310,6 +312,44 @@ def test_next_daily_eval_run_uses_next_midnight_in_config_timezone():
     assert next_run == datetime(2026, 6, 5, 0, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
 
 
+def test_daily_eval_scheduler_labels_run_with_scheduled_time_when_sleep_wakes_early(
+    tmp_path,
+):
+    db_path = tmp_path / "usage.sqlite3"
+    init_db(db_path)
+    timezone = ZoneInfo("Asia/Shanghai")
+    now_values = iter(
+        [
+            datetime(2026, 6, 17, 23, 59, 0, tzinfo=timezone),
+            datetime(2026, 6, 17, 23, 59, 59, 916769, tzinfo=timezone),
+        ]
+    )
+    captured_run_times = []
+
+    async def fake_sleep(delay_seconds):
+        assert delay_seconds == 60
+
+    async def fake_run_eval(**kwargs):
+        captured_run_times.append(kwargs["now"])
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            run_daily_eval_scheduler(
+                config=multi_key_config(),
+                usage_manager=UsageManager(db_path),
+                tavily_api_key="tvly-test",
+                sleep_fn=fake_sleep,
+                now_fn=lambda: next(now_values),
+                run_eval=fake_run_eval,
+            )
+        )
+
+    assert captured_run_times == [
+        datetime(2026, 6, 18, 0, 0, tzinfo=timezone)
+    ]
+
+
 def test_start_daily_eval_scheduler_skips_without_tavily_key(
     tmp_path,
     monkeypatch,
@@ -392,7 +432,22 @@ def test_write_daily_eval_report_creates_latest_json_and_markdown(tmp_path):
                 usage_missing=False,
                 summary="摘要内容",
                 error_message=None,
-            )
+            ),
+            ModelEvalResult(
+                provider="agnes",
+                endpoint="api",
+                key_id="agnes-1",
+                model_name="agnes-2.0-flash",
+                level=4,
+                status="error",
+                latency_ms=1099,
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                usage_missing=False,
+                summary="",
+                error_message="upstream 500",
+            ),
         ],
     )
 
@@ -403,9 +458,16 @@ def test_write_daily_eval_report_creates_latest_json_and_markdown(tmp_path):
     results_jsonl = tmp_path / "2026-06-04" / "results.jsonl"
     assert latest["run_date"] == "2026-06-04"
     assert latest["ok_count"] == 1
-    assert latest["error_count"] == 0
-    assert "model-a" in report.read_text(encoding="utf-8")
-    assert json.loads(results_jsonl.read_text(encoding="utf-8").strip())["key_id"] == "ark-1"
+    assert latest["error_count"] == 1
+    report_text = report.read_text(encoding="utf-8")
+    assert "model-a" in report_text
+    assert "agnes-2.0-flash" in report_text
+    assert "upstream 500" in report_text
+    result_lines = [
+        json.loads(line)
+        for line in results_jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [line["key_id"] for line in result_lines] == ["ark-1", "agnes-1"]
 
 
 def test_homepage_renders_latest_daily_eval_report():
