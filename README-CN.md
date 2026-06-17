@@ -259,7 +259,9 @@ curl -s http://127.0.0.1:8000/v1/chat/completions \
 }
 ```
 
-router 会在选好模型后，把这些标准字段转换成最终 provider 支持的形态。显式指定 `router.provider` 时，除 `router.thinking` 外，标准字段保持透传，便于直接调试某个供应商。`stream_options` 只应随 `stream: true` 发送；自动路由的非流式请求会移除这个字段。
+router 会在选好模型后，把这些标准字段转换成最终 provider 支持的形态。Chat Completions 自动路由中，OpenRouter 使用 `reasoning.effort`，MiMo 使用 `thinking.type`，Ark 使用 `thinking.type`，并且仅对支持强度的 Ark Chat 模型保留顶层 `reasoning_effort`。显式指定 `router.provider` 时，除 `router.thinking` 外，标准字段保持透传，便于直接调试某个供应商。`stream_options` 只应随 `stream: true` 发送；自动路由的非流式请求会移除这个字段。
+
+注意 Chat 和 Responses 的 Ark 字段不同：Ark Chat API 的思考强度是顶层 `reasoning_effort`，Ark Responses API 的思考强度是 `reasoning.effort`。当前 `/v1/responses` 是原生代理，不翻译 `router.thinking` / `router.thinking_effort`；需要控制 Responses 思考模式时，请直接传上游原生 `thinking` 和 `reasoning` 字段。
 
 ### Runtime fallback 与 cooldown
 

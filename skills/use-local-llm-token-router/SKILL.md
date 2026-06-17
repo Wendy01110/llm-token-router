@@ -109,6 +109,14 @@ Router-specific fields under `router`:
 
 Default behavior: missing optional OpenAI fields are not injected. The router translates or removes only fields that the client sends, except streaming usage policy may add `stream_options.include_usage` for endpoints configured to require it.
 
+For Chat Completions automatic routes, provider thinking fields differ:
+
+- OpenRouter uses `reasoning.effort` or `reasoning.enabled`.
+- Xiaomi MiMo uses `thinking.type`.
+- Volcengine Ark Chat uses `thinking.type`; Ark Chat models that support effort keep top-level `reasoning_effort`.
+
+Ark Responses uses a different effort shape from Ark Chat: Responses effort is `reasoning.effort`, not top-level `reasoning_effort`. The local `/v1/responses` endpoint is a native proxy and currently does not translate `router.thinking` or `router.thinking_effort`; send provider-native `thinking` and `reasoning` fields for Responses thinking control.
+
 ## Runtime Fallback
 
 Local quota records do not fully capture upstream TPS/RPM pressure. At runtime, the router falls back to another eligible route when an upstream call fails with `429`, `5xx`, network errors, or timeouts. The failed `(provider, endpoint, key_id, model)` enters an in-process cooldown controlled by `routing.runtime_cooldown_seconds` (default `30`).
@@ -128,7 +136,8 @@ Native Responses requests use the same runtime fallback behavior, but only among
 - Use explicit `router.provider` only for debugging, benchmarking, or forcing a vendor path. In explicit-provider calls, standard fields are intentionally passed through.
 - Prefer `max_completion_tokens`; avoid new uses of deprecated `max_tokens`.
 - Prefer `reasoning_effort: "medium"` for reasoning-capable automatic routes unless the project needs faster or deeper responses.
-- If the user wants router-native thinking control, use `router.thinking` and optional `router.thinking_effort`; these override top-level `reasoning_effort`.
+- If the user wants router-native thinking control for Chat Completions, use `router.thinking` and optional `router.thinking_effort`; these override top-level `reasoning_effort`.
+- For `/v1/responses`, do not rely on `router.thinking`; pass the upstream-native Responses thinking fields directly.
 
 ## Python SDK Pattern
 

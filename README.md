@@ -426,7 +426,9 @@ The default client path should use `model: "auto"` with standard OpenAI Chat Com
 }
 ```
 
-After model selection, the router adapts these standard fields to the selected provider. When `router.provider` is explicit, standard fields pass through unchanged except for the router-native `router.thinking` option. Send `stream_options` only with `stream: true`; automatic non-streaming routes remove it before calling upstream providers.
+After model selection, the router adapts these standard fields to the selected provider. For Chat Completions auto routes, OpenRouter uses `reasoning.effort`, MiMo uses `thinking.type`, and Ark uses `thinking.type`; Ark Chat models that support effort keep the top-level `reasoning_effort` field. When `router.provider` is explicit, standard fields pass through unchanged except for the router-native `router.thinking` option. Send `stream_options` only with `stream: true`; automatic non-streaming routes remove it before calling upstream providers.
+
+Ark uses different effort fields for Chat and Responses: Chat API uses top-level `reasoning_effort`, while Responses API uses `reasoning.effort`. The local `/v1/responses` endpoint is a native proxy and currently does not translate `router.thinking` or `router.thinking_effort`; send provider-native `thinking` and `reasoning` fields when a Responses request needs thinking control.
 
 ### Streaming
 

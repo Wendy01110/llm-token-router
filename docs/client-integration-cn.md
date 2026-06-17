@@ -101,7 +101,7 @@ curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
 - 显式指定 `router.provider` 时，除 `router.thinking` 这个 router 私有开关外，其它请求字段按调用方意图透传给上游。
 - `max_tokens` 是旧字段；自动路由时会改成 `max_completion_tokens`。新调用方应直接传 `max_completion_tokens`。
 - 非流式请求里的 `stream_options` 会在自动路由时移除，避免发给不接受该字段的上游。
-- `reasoning_effort` 会在自动路由时转成 OpenRouter 的 `reasoning.effort`，或转成 MiMo/Ark 的 `thinking.type`。如果同时传 `router.thinking`，以 `router.thinking` 为准。
+- Chat Completions 自动路由会适配 `reasoning_effort`：OpenRouter 转成 `reasoning.effort`；MiMo 转成 `thinking.type`；Ark 转成 `thinking.type`，并且仅对当前配置中的 `doubao-seed-2-0*` 模型保留 Ark Chat API 顶层 `reasoning_effort`。如果同时传 `router.thinking`，以 `router.thinking` 为准。
 
 ## Responses API
 
@@ -111,7 +111,9 @@ curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
 POST http://127.0.0.1:8000/v1/responses
 ```
 
-这个接口只做原生 Responses 代理：router 仍负责选模型、选 key、检查配额、记录 usage，但不会把 Responses 请求转换成 Chat Completions。只有配置了 `responses_api: native` 的 endpoint 会进入候选，当前是 `volcengine_ark` 和 `openrouter`。
+这个接口只做原生 Responses 代理：router 仍负责选模型、选 key、检查配额、记录 usage，但不会把 Responses 请求转换成 Chat Completions，也不会套用 Chat Completions 的参数适配规则。只有配置了 `responses_api: native` 的 endpoint 会进入候选，当前是 `volcengine_ark` 和 `openrouter`。
+
+Responses 请求需要直接传上游原生字段。以 Ark 为例，深度思考开关仍是顶层 `thinking.type`，但思考强度是 `reasoning.effort`；Ark Chat API 的顶层 `reasoning_effort` 不适用于 Responses API。当前 `/v1/responses` 不翻译 `router.thinking` / `router.thinking_effort`，如果需要控制思考模式，请在请求体里直接传上游支持的 `thinking` 和 `reasoning` 字段。
 
 示例：
 
@@ -412,21 +414,29 @@ router 的本地 quota 只能覆盖日配额和请求次数，不能完全反映
 }
 ```
 
-思考参数规则：
+思考参数规则（适用于 `/v1/chat/completions`）：
 
 - 不传 `router.thinking` 时，router 不注入思考参数，使用上游模型默认行为。
 - `router.thinking: true` 时，router 会按最终选中的 provider/model 翻译参数。
 - `router.thinking: false` 时，router 会按最终选中的 provider/model 传关闭参数。
-- 如果请求体同时传了上游私有字段，例如顶层 `thinking` 或 `reasoning`，`router.thinking` 会覆盖这些同类字段。
-- `thinking_effort` 推荐值为 `"low"`、`"medium"`、`"high"`；OpenRouter 还接受 `"minimal"`、`"none"`、`"xhigh"`。不支持强度的模型只会收到开关参数。
+- 避免同时传 `router.thinking` 和上游私有思考字段。Chat 路径会覆盖它负责生成的目标字段，但不会清理所有供应商私有字段。
+- `thinking_effort` 推荐值为 `"low"`、`"medium"`、`"high"`；Ark 还接受 `"minimal"`，OpenRouter 还接受 `"minimal"`、`"none"`、`"xhigh"`。不支持强度的模型只会收到开关参数。
+- `/v1/responses` 当前不翻译 `router.thinking`，需要直接传 Responses 原生字段。
 
 当前翻译规则：
 
 | 选中的 provider/model | `thinking: true` | `thinking: false` | `thinking_effort` |
 | --------------------- | ---------------- | ----------------- | ----------------- |
 | `xiaomi_mimo`         | `thinking.type=enabled` | `thinking.type=disabled` | 不转发 |
-| `volcengine_ark`      | `thinking.type=enabled` | `thinking.type=disabled` | 仅 `doubao-seed-2-0*` 转成 `reasoning_effort` |
+| `volcengine_ark` Chat | `thinking.type=enabled` | `thinking.type=disabled` | 仅 `doubao-seed-2-0*` 转成顶层 `reasoning_effort` |
 | `openrouter`          | `reasoning.enabled=true`，或 `reasoning.effort=<value>` | `reasoning.effort=none` | 转成 `reasoning.effort` |
+
+Ark 模型差异：
+
+- Chat API：开关字段是 `thinking.type`，强度字段是顶层 `reasoning_effort`。
+- Responses API：开关字段是 `thinking.type`，强度字段是 `reasoning.effort`。
+- 当前配置里的 `doubao-seed-2-0*` 模型支持开关和强度；`glm-4-7-251222`、`deepseek-v3-2-251201` 只按开关适配，Chat 自动路由不会给它们转发强度字段。
+- 不传 `router.thinking` 时 router 不注入字段，因此保留上游默认值；例如 Ark 官网标注 `deepseek-v3-2-251201` 默认关闭深度思考。
 
 强制走 MiMo：
 
