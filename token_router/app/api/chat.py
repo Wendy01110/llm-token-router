@@ -78,6 +78,7 @@ async def chat_completions(
                 stream=stream,
                 first_chunk=first_chunk,
                 usage_manager=usage_manager,
+                runtime_state=runtime_state,
                 request_id=request_id,
                 selected=selected,
                 quota_date=quota_date,
@@ -88,6 +89,7 @@ async def chat_completions(
         )
 
     last_error: httpx.HTTPError | None = None
+    use_fallback_models = False
     while True:
         try:
             selected, endpoint_config, api_key, outgoing_payload = _prepare_chat_attempt(
@@ -96,11 +98,17 @@ async def chat_completions(
                 request_payload=request_payload,
                 quota_date=quota_date,
                 excluded_routes=excluded_routes,
+                use_fallback_models=use_fallback_models,
             )
         except NoAvailableModelError as exc:
             if last_error is not None:
                 _raise_runtime_http_error(last_error)
             raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+        if not runtime_state.try_acquire_concurrency(selected):
+            excluded_routes.add(route_key(selected))
+            use_fallback_models = True
+            continue
 
         attempt_started_at = perf_counter()
         try:
@@ -120,7 +128,7 @@ async def chat_completions(
                 completion_tokens=0,
                 total_tokens=0,
                 status="error",
-                error_message=str(exc),
+                error_message=_http_error_message(exc),
                 started_at=attempt_started_at,
             )
             if is_retryable_runtime_error(exc):
@@ -130,8 +138,11 @@ async def chat_completions(
                 )
                 excluded_routes.add(route_key(selected))
                 last_error = exc
+                use_fallback_models = True
                 continue
             _raise_runtime_http_error(exc)
+        finally:
+            runtime_state.release_concurrency(selected)
 
         usage = upstream_response.get("usage") or {}
         prompt_tokens = int(usage.get("prompt_tokens") or 0)
@@ -149,7 +160,7 @@ async def chat_completions(
         )
         _log_chat_request(
             usage_manager=usage_manager,
-            request_id=upstream_response.get("id", request_id),
+            request_id=request_id,
             selected=selected,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
@@ -171,12 +182,15 @@ def _prepare_chat_attempt(
     request_payload: ChatCompletionRequest,
     quota_date: str,
     excluded_routes: set[tuple[str, str, str, str]],
+    use_fallback_models: bool = False,
 ) -> tuple[SelectedRoute, EndpointConfig, ApiKeyConfig, dict[str, Any]]:
     selected = selector.select(
         model=request_payload.model,
         router=request_payload.router,
         quota_date=quota_date,
+        response_format_type=_response_format_type(request_payload),
         excluded_routes=excluded_routes,
+        use_fallback_models=use_fallback_models,
     )
     provider_config = config.providers[selected.provider]
     endpoint_config = provider_config.get_endpoint(selected.endpoint)
@@ -206,6 +220,7 @@ async def _open_chat_stream_with_fallback(
     excluded_routes: set[tuple[str, str, str, str]],
 ) -> tuple[SelectedRoute, AsyncIterator[bytes], bytes | None]:
     last_error: httpx.HTTPError | None = None
+    use_fallback_models = False
     while True:
         try:
             selected, endpoint_config, api_key, outgoing_payload = _prepare_chat_attempt(
@@ -214,6 +229,7 @@ async def _open_chat_stream_with_fallback(
                 request_payload=request_payload,
                 quota_date=quota_date,
                 excluded_routes=excluded_routes,
+                use_fallback_models=use_fallback_models,
             )
         except NoAvailableModelError as exc:
             if last_error is not None:
@@ -224,6 +240,11 @@ async def _open_chat_stream_with_fallback(
             outgoing_payload,
             endpoint_config.stream_usage_mode,
         )
+        if not runtime_state.try_acquire_concurrency(selected):
+            excluded_routes.add(route_key(selected))
+            use_fallback_models = True
+            continue
+
         attempt_started_at = perf_counter()
         try:
             stream = request.app.state.provider.chat_completion_stream(
@@ -243,7 +264,7 @@ async def _open_chat_stream_with_fallback(
                 completion_tokens=0,
                 total_tokens=0,
                 status="error",
-                error_message=str(exc),
+                error_message=_http_error_message(exc),
                 started_at=attempt_started_at,
             )
             if is_retryable_runtime_error(exc):
@@ -253,8 +274,14 @@ async def _open_chat_stream_with_fallback(
                 )
                 excluded_routes.add(route_key(selected))
                 last_error = exc
+                use_fallback_models = True
+                runtime_state.release_concurrency(selected)
                 continue
+            runtime_state.release_concurrency(selected)
             _raise_runtime_http_error(exc)
+        except Exception:
+            runtime_state.release_concurrency(selected)
+            raise
 
         return selected, stream, first_chunk
 
@@ -263,9 +290,24 @@ def _raise_runtime_http_error(exc: httpx.HTTPError) -> None:
     if isinstance(exc, httpx.HTTPStatusError):
         raise HTTPException(
             status_code=exc.response.status_code,
-            detail=exc.response.text,
+            detail=_response_error_text(exc.response) or str(exc),
         ) from exc
     raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _http_error_message(exc: httpx.HTTPError) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        response_text = _response_error_text(exc.response)
+        if response_text:
+            return f"{exc}; response: {response_text}"
+    return str(exc)
+
+
+def _response_error_text(response: httpx.Response) -> str:
+    try:
+        return response.text.strip()
+    except httpx.ResponseNotRead:
+        return ""
 
 
 def _log_chat_request(
@@ -309,6 +351,18 @@ def _router_headers(
         "X-Router-Usage-Ratio": str(selected.usage_ratio),
         "X-Router-Stage": str(selected.stage),
     }
+
+
+def _response_format_type(request_payload: ChatCompletionRequest) -> str | None:
+    response_format = request_payload.model_dump(exclude_none=True).get(
+        "response_format"
+    )
+    if not isinstance(response_format, dict):
+        return None
+    response_format_type = response_format.get("type")
+    if isinstance(response_format_type, str):
+        return response_format_type
+    return None
 
 
 def _adapt_openai_standard_params(
@@ -402,6 +456,7 @@ async def _stream_and_record_usage(
     stream: AsyncIterator[bytes],
     first_chunk: bytes | None,
     usage_manager: UsageManager,
+    runtime_state: RuntimeRouteState,
     request_id: str,
     selected: SelectedRoute,
     quota_date: str,
@@ -427,29 +482,34 @@ async def _stream_and_record_usage(
         error_message = str(exc)
         raise
     finally:
-        usage = latest_usage or {}
-        prompt_tokens = int(usage.get("prompt_tokens") or 0)
-        completion_tokens = int(usage.get("completion_tokens") or 0)
-        total_tokens = int(usage.get("total_tokens") or prompt_tokens + completion_tokens)
-        usage_manager.record_usage(
-            provider=selected.provider,
-            key_id=selected.key_id,
-            model_name=selected.model_name,
-            quota_date=quota_date,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-        )
-        latency_ms = int((perf_counter() - started_at) * 1000)
-        usage_manager.log_request(
-            request_id=request_id,
-            provider=selected.provider,
-            key_id=selected.key_id,
-            model_name=selected.model_name,
-            level=selected.level,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            status=status,
-            error_message=error_message,
-            latency_ms=latency_ms,
-        )
+        try:
+            usage = latest_usage or {}
+            prompt_tokens = int(usage.get("prompt_tokens") or 0)
+            completion_tokens = int(usage.get("completion_tokens") or 0)
+            total_tokens = int(
+                usage.get("total_tokens") or prompt_tokens + completion_tokens
+            )
+            usage_manager.record_usage(
+                provider=selected.provider,
+                key_id=selected.key_id,
+                model_name=selected.model_name,
+                quota_date=quota_date,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+            latency_ms = int((perf_counter() - started_at) * 1000)
+            usage_manager.log_request(
+                request_id=request_id,
+                provider=selected.provider,
+                key_id=selected.key_id,
+                model_name=selected.model_name,
+                level=selected.level,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                status=status,
+                error_message=error_message,
+                latency_ms=latency_ms,
+            )
+        finally:
+            runtime_state.release_concurrency(selected)

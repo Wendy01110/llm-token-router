@@ -265,9 +265,24 @@ router 会在选好模型后，把这些标准字段转换成最终 provider 支
 
 ### Runtime fallback 与 cooldown
 
-除本地配额外，router 还会处理上游运行时瞬时失败：`429`、`5xx`、网络错误和超时会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在本次请求内继续选择下一个可用 route。`400`、`401`、`403` 等请求或鉴权错误不会 fallback，会直接返回给调用方。
+除本地配额外，router 还会处理上游运行时瞬时失败和模型并发满载：`400`、`401`、`403`、`429`、`5xx`、网络错误和超时会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在本次请求内继续选择下一个可用 route；模型达到 `max_concurrency` 时也会跳过当前模型继续选路。其它 `4xx` 错误会直接返回给调用方。
 
 默认 cooldown 为 `routing.runtime_cooldown_seconds: 30`。非流式 Chat Completions 和原生 Responses 都支持 runtime fallback；流式请求只支持“首包前 fallback”，一旦已有 SSE chunk 发给客户端，就不会在同一个流里切换模型。
+
+可用 `router.fallback_models` 指定运行时 fallback 的模型顺序；它只在已经需要 fallback 时生效，不改变第一次正常选路，且列表内模型仍需通过 provider、level、model_group、能力、配额、响应格式和并发过滤：
+
+```json
+{
+  "router": {
+    "level": 1,
+    "fallback": true,
+    "fallback_models": [
+      "glm-4-7-251222",
+      "deepseek-v3-2-251201"
+    ]
+  }
+}
+```
 
 ### 流式响应
 
@@ -434,11 +449,13 @@ model_instances:
     provider: volcengine_ark
     endpoint: api
     level: 2
+    max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 10000000
         priority: 30
     groups: [general]
+    unsupported_response_format_types: []
 ```
 
 字段说明：
@@ -447,11 +464,13 @@ model_instances:
 - `provider`：`providers` 下面的供应商名。
 - `endpoint`：该供应商下面的 URL/key 池。
 - `level`：等级，数字越小优先级越高，`1` 最高。
+- `max_concurrency`：该模型实例允许的最大在途请求数；满载时 router 会跳过它并选择其它可用模型。
 - `keys[].key_id`：该 endpoint 下面的 key。
 - `keys[].daily_quota`：这个模型/key 实例每天可用 token 额度。
 - `keys[].daily_request_quota`：可选的每日请求次数额度。
 - `keys[].priority`：同等级、同阶段内的排序，数字越小越优先。
 - `groups`：可选标签，例如 `coding`、`general`、`reasoning`、`fallback`。
+- `unsupported_response_format_types`：可选的响应格式过滤列表，例如 `[json_object]`；请求该格式时会跳过这个模型实例。
 
 ### 禁用或删除模型
 

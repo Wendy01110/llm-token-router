@@ -141,14 +141,25 @@ def route_preview(payload: dict[str, Any], request: Request) -> dict[str, Any]:
             model=payload.get("model", "auto"),
             router=payload.get("router", {}),
             quota_date=quota_date,
+            response_format_type=_response_format_type(payload),
         )
     except NoAvailableModelError as exc:
         raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     return {
         "selected": selected.to_dict(),
-        "reason": "selected by level, stage, priority, and usage ratio",
+        "reason": "selected by capability filters, level, stage, priority, and usage ratio",
     }
+
+
+def _response_format_type(payload: dict[str, Any]) -> str | None:
+    response_format = payload.get("response_format")
+    if not isinstance(response_format, dict):
+        return None
+    response_format_type = response_format.get("type")
+    if isinstance(response_format_type, str):
+        return response_format_type
+    return None
 
 
 def _render_usage_page(

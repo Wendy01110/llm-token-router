@@ -123,6 +123,8 @@ class ModelInstanceConfig(BaseModel):
     priority: int = Field(default=100, ge=1)
     keys: list[ModelInstanceKeyConfig] = Field(default_factory=list)
     groups: list[str] = Field(default_factory=list)
+    max_concurrency: int = Field(default=2, ge=1)
+    unsupported_response_format_types: list[str] = Field(default_factory=list)
     enabled: bool = True
 
     @model_validator(mode="after")

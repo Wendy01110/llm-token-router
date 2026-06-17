@@ -71,6 +71,7 @@ model_instances:
     provider: xiaomi_mimo
     endpoint: token_plan
     level: 1
+    max_concurrency: 2
     keys:
       - key_id: mimo_token_plan
         daily_quota: 50000000
@@ -81,16 +82,19 @@ model_instances:
     provider: volcengine_ark
     endpoint: api
     level: 2
+    max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 50000000
         priority: 20
     groups: [general, coding, fallback]
+    unsupported_response_format_types: []
 
   - name: ${AGNES_MODEL}
     provider: agnes
     endpoint: api
     level: 4
+    max_concurrency: 2
     keys:
       - key_id: agnes_1
         daily_quota: 5000000
@@ -101,6 +105,7 @@ model_instances:
     provider: openrouter
     endpoint: api
     level: 5
+    max_concurrency: 2
     keys:
       - key_id: openrouter_1
         daily_quota: 5000000

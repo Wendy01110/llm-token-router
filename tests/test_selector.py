@@ -126,6 +126,63 @@ def test_selector_falls_back_when_request_quota_is_exhausted():
     assert selected.model_name == "model-b"
 
 
+def test_selector_ignores_fallback_models_for_initial_auto_selection():
+    config = make_config()
+    config.model_instances.append(
+        ModelInstanceConfig(
+            name="model-c",
+            provider="test",
+            level=2,
+            priority=5,
+            keys=[{"key_id": "k1", "daily_quota": 100}],
+            groups=["general"],
+        )
+    )
+    selector = RouteSelector(config, FakeUsageManager({}))
+
+    selected = selector.select(
+        model="auto",
+        router={"level": 1, "fallback_models": ["model-c"]},
+        quota_date="2026-05-27",
+    )
+
+    assert selected.model_name == "model-a"
+
+
+def test_selector_uses_fallback_models_order_for_model_fallback():
+    config = make_config()
+    config.model_instances.append(
+        ModelInstanceConfig(
+            name="model-c",
+            provider="test",
+            level=2,
+            priority=5,
+            keys=[{"key_id": "k1", "daily_quota": 100}],
+            groups=["general"],
+        )
+    )
+    selector = RouteSelector(
+        config,
+        FakeUsageManager(
+            {
+                ("test", "k1", "model-a"): UsageRecord(total_tokens=100),
+                ("test", "k2", "model-a"): UsageRecord(total_tokens=100),
+            }
+        ),
+    )
+
+    selected = selector.select(
+        model="model-a",
+        router={
+            "level": 1,
+            "fallback_models": ["model-c", "model-b"],
+        },
+        quota_date="2026-05-27",
+    )
+
+    assert selected.model_name == "model-c"
+
+
 def test_selector_raises_when_strict_model_is_exhausted():
     selector = RouteSelector(
         make_config(),
@@ -185,3 +242,56 @@ def test_selector_skips_excluded_runtime_route():
     )
 
     assert selected.key_id == "k2"
+
+
+def test_selector_skips_unsupported_response_format_type():
+    config = make_config()
+    config.model_instances = [
+        ModelInstanceConfig(
+            name="json-unsupported-model",
+            provider="test",
+            level=1,
+            priority=10,
+            keys=[{"key_id": "k1", "daily_quota": 100}],
+            unsupported_response_format_types=["json_object"],
+        ),
+        ModelInstanceConfig(
+            name="json-supported-model",
+            provider="test",
+            level=2,
+            priority=20,
+            keys=[{"key_id": "k1", "daily_quota": 100}],
+        ),
+    ]
+    selector = RouteSelector(config, FakeUsageManager({}))
+
+    selected = selector.select(
+        model="auto",
+        router={"level": 1},
+        quota_date="2026-05-27",
+        response_format_type="json_object",
+    )
+
+    assert selected.model_name == "json-supported-model"
+
+
+def test_selector_raises_when_strict_model_has_unsupported_response_format_type():
+    config = make_config()
+    config.model_instances[0] = ModelInstanceConfig(
+        name="model-a",
+        provider="test",
+        level=1,
+        priority=10,
+        keys=[{"key_id": "k1", "daily_quota": 100}],
+        unsupported_response_format_types=["json_object"],
+    )
+    config.model_instances = [config.model_instances[0], config.model_instances[2]]
+    selector = RouteSelector(config, FakeUsageManager({}))
+
+    with pytest.raises(NoAvailableModelError):
+        selector.select(
+            model="model-a",
+            router={"level": 1, "strict_model": True},
+            quota_date="2026-05-27",
+            response_format_type="json_object",
+        )

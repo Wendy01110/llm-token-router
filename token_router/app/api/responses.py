@@ -64,6 +64,7 @@ async def responses(
                 stream=stream,
                 first_chunk=first_chunk,
                 usage_manager=usage_manager,
+                runtime_state=runtime_state,
                 request_id=request_id,
                 selected=selected,
                 quota_date=quota_date,
@@ -74,6 +75,7 @@ async def responses(
         )
 
     last_error: httpx.HTTPError | None = None
+    use_fallback_models = False
     while True:
         try:
             selected, endpoint_config, api_key, outgoing_payload = (
@@ -83,12 +85,18 @@ async def responses(
                     request_payload=request_payload,
                     quota_date=quota_date,
                     excluded_routes=excluded_routes,
+                    use_fallback_models=use_fallback_models,
                 )
             )
         except NoAvailableModelError as exc:
             if last_error is not None:
                 _raise_runtime_http_error(last_error)
             raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+        if not runtime_state.try_acquire_concurrency(selected):
+            excluded_routes.add(route_key(selected))
+            use_fallback_models = True
+            continue
 
         attempt_started_at = perf_counter()
         try:
@@ -116,8 +124,11 @@ async def responses(
                 )
                 excluded_routes.add(route_key(selected))
                 last_error = exc
+                use_fallback_models = True
                 continue
             _raise_runtime_http_error(exc)
+        finally:
+            runtime_state.release_concurrency(selected)
 
         usage = _normalise_response_usage(upstream_response.get("usage") or {})
         usage_manager.record_usage(
@@ -130,7 +141,7 @@ async def responses(
         )
         _log_response_request(
             usage_manager=usage_manager,
-            request_id=upstream_response.get("id", request_id),
+            request_id=request_id,
             selected=selected,
             usage=usage,
             status="ok",
@@ -150,6 +161,7 @@ def _prepare_responses_attempt(
     request_payload: ResponsesRequest,
     quota_date: str,
     excluded_routes: set[tuple[str, str, str, str]],
+    use_fallback_models: bool = False,
 ) -> tuple[SelectedRoute, EndpointConfig, ApiKeyConfig, dict[str, Any]]:
     selected = selector.select(
         model=request_payload.model,
@@ -158,6 +170,7 @@ def _prepare_responses_attempt(
         responses_api="native",
         responses_tool_types=_responses_tool_types(request_payload),
         excluded_routes=excluded_routes,
+        use_fallback_models=use_fallback_models,
     )
     provider_config = config.providers[selected.provider]
     endpoint_config = provider_config.get_endpoint(selected.endpoint)
@@ -180,6 +193,7 @@ async def _open_responses_stream_with_fallback(
     excluded_routes: set[tuple[str, str, str, str]],
 ) -> tuple[SelectedRoute, AsyncIterator[bytes], bytes | None]:
     last_error: httpx.HTTPError | None = None
+    use_fallback_models = False
     while True:
         try:
             selected, endpoint_config, api_key, outgoing_payload = (
@@ -189,12 +203,18 @@ async def _open_responses_stream_with_fallback(
                     request_payload=request_payload,
                     quota_date=quota_date,
                     excluded_routes=excluded_routes,
+                    use_fallback_models=use_fallback_models,
                 )
             )
         except NoAvailableModelError as exc:
             if last_error is not None:
                 _raise_runtime_http_error(last_error)
             raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+        if not runtime_state.try_acquire_concurrency(selected):
+            excluded_routes.add(route_key(selected))
+            use_fallback_models = True
+            continue
 
         attempt_started_at = perf_counter()
         try:
@@ -223,8 +243,14 @@ async def _open_responses_stream_with_fallback(
                 )
                 excluded_routes.add(route_key(selected))
                 last_error = exc
+                use_fallback_models = True
+                runtime_state.release_concurrency(selected)
                 continue
+            runtime_state.release_concurrency(selected)
             _raise_runtime_http_error(exc)
+        except Exception:
+            runtime_state.release_concurrency(selected)
+            raise
 
         return selected, stream, first_chunk
 
@@ -261,6 +287,7 @@ async def _stream_native_responses_and_record_usage(
     stream: AsyncIterator[bytes],
     first_chunk: bytes | None,
     usage_manager: UsageManager,
+    runtime_state: RuntimeRouteState,
     request_id: str,
     selected: SelectedRoute,
     quota_date: str,
@@ -286,24 +313,27 @@ async def _stream_native_responses_and_record_usage(
         error_message = _http_error_message(exc)
         yield _responses_stream_error_event(error_message)
     finally:
-        usage = _normalise_response_usage(latest_usage or {})
-        usage_manager.record_usage(
-            provider=selected.provider,
-            key_id=selected.key_id,
-            model_name=selected.model_name,
-            quota_date=quota_date,
-            prompt_tokens=usage["prompt_tokens"],
-            completion_tokens=usage["completion_tokens"],
-        )
-        _log_response_request(
-            usage_manager=usage_manager,
-            request_id=request_id,
-            selected=selected,
-            usage=usage,
-            status=status,
-            error_message=error_message,
-            started_at=started_at,
-        )
+        try:
+            usage = _normalise_response_usage(latest_usage or {})
+            usage_manager.record_usage(
+                provider=selected.provider,
+                key_id=selected.key_id,
+                model_name=selected.model_name,
+                quota_date=quota_date,
+                prompt_tokens=usage["prompt_tokens"],
+                completion_tokens=usage["completion_tokens"],
+            )
+            _log_response_request(
+                usage_manager=usage_manager,
+                request_id=request_id,
+                selected=selected,
+                usage=usage,
+                status=status,
+                error_message=error_message,
+                started_at=started_at,
+            )
+        finally:
+            runtime_state.release_concurrency(selected)
 
 
 class ResponsesSSEUsageTracker:

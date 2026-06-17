@@ -149,6 +149,16 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     assert config.providers["agnes"].get_endpoint("api").responses_api == "unsupported"
     assert config.providers["openrouter"].get_endpoint("api").responses_api == "native"
     assert config.providers["openrouter"].get_endpoint("api").responses_unsupported_tool_types == []
+    max_concurrency_by_provider = {
+        instance.provider: instance.max_concurrency
+        for instance in config.model_instances
+    }
+    assert max_concurrency_by_provider == {
+        "xiaomi_mimo": 2,
+        "volcengine_ark": 4,
+        "agnes": 2,
+        "openrouter": 2,
+    }
     assert config.model_instances[-2].name == "agnes-2.0-flash"
     assert config.model_instances[-2].provider == "agnes"
     assert config.model_instances[-2].level < config.model_instances[-1].level

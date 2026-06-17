@@ -28,22 +28,32 @@ class RouteSelector:
         model: str,
         router: Mapping[str, Any] | None,
         quota_date: str,
+        response_format_type: str | None = None,
         responses_api: str | None = None,
         responses_tool_types: set[str] | None = None,
         excluded_routes: set[RouteKey] | None = None,
+        use_fallback_models: bool = False,
     ) -> SelectedRoute:
         router_options = dict(router or {})
         requested_model = None if model == "auto" else model
         strict_model = bool(router_options.get("strict_model", False))
         excluded_routes = excluded_routes or set()
+        fallback_model_order = self._fallback_model_order(router_options)
+        initial_fallback_model_order = (
+            fallback_model_order
+            if use_fallback_models and requested_model is None
+            else None
+        )
 
         selected = self._select_matching(
             requested_model=requested_model,
             router_options=router_options,
             quota_date=quota_date,
+            response_format_type=response_format_type,
             responses_api=responses_api,
             responses_tool_types=responses_tool_types,
             excluded_routes=excluded_routes,
+            fallback_model_order=initial_fallback_model_order,
         )
         if selected is not None:
             return selected
@@ -53,9 +63,11 @@ class RouteSelector:
                 requested_model=None,
                 router_options=router_options,
                 quota_date=quota_date,
+                response_format_type=response_format_type,
                 responses_api=responses_api,
                 responses_tool_types=responses_tool_types,
                 excluded_routes=excluded_routes,
+                fallback_model_order=fallback_model_order,
             )
             if selected is not None:
                 return selected
@@ -74,9 +86,11 @@ class RouteSelector:
         requested_model: str | None,
         router_options: Mapping[str, Any],
         quota_date: str,
+        response_format_type: str | None = None,
         responses_api: str | None = None,
         responses_tool_types: set[str] | None = None,
         excluded_routes: set[RouteKey] | None = None,
+        fallback_model_order: dict[str, int] | None = None,
     ) -> SelectedRoute | None:
         candidates = []
         levels = set(self._candidate_levels(router_options))
@@ -92,7 +106,16 @@ class RouteSelector:
                 continue
             if requested_model and instance.name != requested_model:
                 continue
+            if (
+                fallback_model_order is not None
+                and instance.name not in fallback_model_order
+            ):
+                continue
             if model_group and model_group not in instance.groups:
+                continue
+            if response_format_type and response_format_type in set(
+                instance.unsupported_response_format_types
+            ):
                 continue
             if responses_api is not None or responses_tool_types:
                 endpoint = self.config.providers[instance.provider].get_endpoint(
@@ -114,8 +137,12 @@ class RouteSelector:
         if not candidates:
             return None
 
-        candidates.sort(
-            key=lambda route: (
+        def sort_key(route: SelectedRoute) -> tuple:
+            fallback_order = ()
+            if fallback_model_order is not None:
+                fallback_order = (fallback_model_order[route.model_name],)
+            return (
+                *fallback_order,
                 route.level,
                 route.stage if route.stage is not None else 99,
                 route.priority,
@@ -125,8 +152,21 @@ class RouteSelector:
                 route.key_id,
                 route.model_name,
             )
-        )
+
+        candidates.sort(key=sort_key)
         return candidates[0]
+
+    def _fallback_model_order(
+        self, router_options: Mapping[str, Any]
+    ) -> dict[str, int] | None:
+        raw_models = router_options.get("fallback_models")
+        if not isinstance(raw_models, list):
+            return None
+        model_order: dict[str, int] = {}
+        for model_name in raw_models:
+            if isinstance(model_name, str) and model_name not in model_order:
+                model_order[model_name] = len(model_order)
+        return model_order or None
 
     def _candidate_levels(self, router_options: Mapping[str, Any]) -> list[int]:
         start_level = int(router_options.get("level") or self.config.routing.default_level)
@@ -181,6 +221,7 @@ class RouteSelector:
             usage_ratio=usage_ratio(usage.total_tokens, key_config.daily_quota),
             stage=stage_for_usage(usage.total_tokens, key_config.daily_quota),
             priority=key_config.priority or instance.priority,
+            max_concurrency=instance.max_concurrency,
             enabled=instance.enabled and key_config.enabled,
             available=instance.enabled and key_config.enabled and not exhausted,
             groups=tuple(instance.groups),

@@ -89,6 +89,7 @@ OpenAI-standard request fields to prefer for normal automatic routes:
 | `store` | Optional | Usually `false`; if omitted, the router does not add it. |
 | `max_completion_tokens` | Optional | Preferred output-token limit field. |
 | `reasoning_effort` | Optional | Typical values: `"low"`, `"medium"`, `"high"`. |
+| `response_format` | Optional | Forwarded when supported; `response_format.type` filters out configured incompatible model instances. |
 | `stream` | Optional | Set `true` for SSE streaming. |
 | `stream_options.include_usage` | Optional | Only send with `stream: true`. |
 | other OpenAI Chat Completions fields | Optional | Forwarded unless the router adapts or removes a field for safety. |
@@ -101,6 +102,7 @@ Router-specific fields under `router`:
 | `level` | Optional | Starting model level; lower is preferred. |
 | `fallback` | Optional | Allow fallback to later levels. |
 | `max_fallback_level` | Optional | Highest fallback level allowed. |
+| `fallback_models` | Optional | Ordered model-name list used only for runtime fallback attempts. |
 | `strict_model` | Optional | Prevent fallback to a different model when true. |
 | `model_group` | Optional | Restrict selection to a configured group such as `"coding"`. |
 | `thinking` | Optional | Router-native thinking on/off override. |
@@ -119,9 +121,11 @@ Ark Responses uses a different effort shape from Ark Chat: Responses effort is `
 
 ## Runtime Fallback
 
-Local quota records do not fully capture upstream TPS/RPM pressure. At runtime, the router falls back to another eligible route when an upstream call fails with `429`, `5xx`, network errors, or timeouts. The failed `(provider, endpoint, key_id, model)` enters an in-process cooldown controlled by `routing.runtime_cooldown_seconds` (default `30`).
+Local quota records do not fully capture upstream TPS/RPM pressure. At runtime, the router falls back to another eligible route when an upstream call fails with `400`, `401`, `403`, `429`, `5xx`, network errors, timeouts, or when the selected model is at `max_concurrency`. The failed `(provider, endpoint, key_id, model)` enters an in-process cooldown controlled by `routing.runtime_cooldown_seconds` (default `30`).
 
-Do not expect fallback for request/authentication errors such as `400`, `401`, or `403`; those are returned to the client. Streaming fallback is only available before the first upstream SSE chunk is sent to the client. Once the stream has started, the router keeps that stream on the selected route.
+Use `router.fallback_models` to order runtime fallback candidates without changing the initial normal route selection. The listed models still have to pass provider, level, model group, capability, quota, response format, and concurrency filters.
+
+Other `4xx` responses are returned to the client. Streaming fallback is only available before the first upstream SSE chunk is sent to the client. Once the stream has started, the router keeps that stream on the selected route.
 
 Native Responses requests use the same runtime fallback behavior, but only among endpoints configured with `responses_api: native`.
 
@@ -136,6 +140,7 @@ Native Responses requests use the same runtime fallback behavior, but only among
 - Use explicit `router.provider` only for debugging, benchmarking, or forcing a vendor path. In explicit-provider calls, standard fields are intentionally passed through.
 - Prefer `max_completion_tokens`; avoid new uses of deprecated `max_tokens`.
 - Prefer `reasoning_effort: "medium"` for reasoning-capable automatic routes unless the project needs faster or deeper responses.
+- If sending `response_format.type`, let the router skip models configured with incompatible `unsupported_response_format_types`.
 - If the user wants router-native thinking control for Chat Completions, use `router.thinking` and optional `router.thinking_effort`; these override top-level `reasoning_effort`.
 - For `/v1/responses`, do not rely on `router.thinking`; pass the upstream-native Responses thinking fields directly.
 

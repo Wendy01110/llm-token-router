@@ -196,11 +196,13 @@ model_instances:
     provider: volcengine_ark
     endpoint: api
     level: 2
+    max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 10000000
         priority: 30
     groups: [general]
+    unsupported_response_format_types: []
 ```
 
 Fields:
@@ -209,11 +211,13 @@ Fields:
 - `provider`: supplier name under `providers`.
 - `endpoint`: URL/key pool under that provider.
 - `level`: smaller is higher priority; `1` is strongest.
+- `max_concurrency`: maximum in-flight requests for this model instance. When it is saturated, the router skips it and selects another eligible model.
 - `keys[].key_id`: key under that endpoint.
 - `keys[].daily_quota`: daily token budget for this model/key instance.
 - `keys[].daily_request_quota`: optional daily request budget for that key.
 - `keys[].priority`: lower wins within the same level/stage.
 - `groups`: optional tags such as `coding`, `general`, `reasoning`, `fallback`.
+- `unsupported_response_format_types`: optional response format types to skip for this model instance, for example `[json_object]`.
 
 ### Disable Or Remove A Model
 
@@ -429,6 +433,23 @@ The default client path should use `model: "auto"` with standard OpenAI Chat Com
 After model selection, the router adapts these standard fields to the selected provider. For Chat Completions auto routes, OpenRouter uses `reasoning.effort`, MiMo uses `thinking.type`, and Ark uses `thinking.type`; Ark Chat models that support effort keep the top-level `reasoning_effort` field. When `router.provider` is explicit, standard fields pass through unchanged except for the router-native `router.thinking` option. Send `stream_options` only with `stream: true`; automatic non-streaming routes remove it before calling upstream providers.
 
 Ark uses different effort fields for Chat and Responses: Chat API uses top-level `reasoning_effort`, while Responses API uses `reasoning.effort`. The local `/v1/responses` endpoint is a native proxy and currently does not translate `router.thinking` or `router.thinking_effort`; send provider-native `thinking` and `reasoning` fields when a Responses request needs thinking control.
+
+### Runtime Fallback
+
+The router falls back to another eligible route when an upstream call fails with `400`, `401`, `403`, `429`, `5xx`, a network error, a timeout, or when the selected model is at `max_concurrency`. Other `4xx` responses are returned to the caller. Use `router.fallback_models` to order runtime fallback models without changing the initial normal route selection. Listed models still have to pass provider, level, model group, capability, quota, response format, and concurrency filters:
+
+```json
+{
+  "router": {
+    "level": 1,
+    "fallback": true,
+    "fallback_models": [
+      "glm-4-7-251222",
+      "deepseek-v3-2-251201"
+    ]
+  }
+}
+```
 
 ### Streaming
 

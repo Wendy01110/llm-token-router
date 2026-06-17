@@ -17,6 +17,7 @@ class SelectedRoute:
     usage_ratio: float
     stage: int | None
     priority: int
+    max_concurrency: int
     enabled: bool
     available: bool
     groups: tuple[str, ...]

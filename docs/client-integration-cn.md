@@ -360,6 +360,7 @@ curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
 | `level`              | `1`             | 起始模型等级；数值越小优先级越高。               |
 | `fallback`           | `true`          | 当前等级无可用模型时，是否向后续等级降级。       |
 | `max_fallback_level` | `5`             | 允许降级到的最高等级编号。                       |
+| `fallback_models`    | `["glm-4-7-251222"]` | 运行时 fallback 时按顺序优先选择这些模型；不影响第一次正常选路。 |
 | `strict_model`       | `true`          | 指定模型不可用时，是否禁止 fallback 到其它模型。 |
 | `model_group`        | `"coding"`      | 只选择带有该 group 的模型实例。                  |
 | `thinking`           | `true`          | 是否让 router 为选中的上游模型开启思考模式。     |
@@ -368,10 +369,12 @@ curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
 
 ## Runtime fallback 与 cooldown
 
-router 的本地 quota 只能覆盖日配额和请求次数，不能完全反映上游 TPS/RPM 的瞬时状态。运行时调用上游时，如果遇到 `429`、`5xx`、网络错误或超时，router 会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在同一个请求内继续选择下一个可用 route。
+router 的本地 quota 只能覆盖日配额和请求次数，不能完全反映上游 TPS/RPM 的瞬时状态。运行时调用上游时，如果遇到 `400`、`401`、`403`、`429`、`5xx`、网络错误或超时，router 会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在同一个请求内继续选择下一个可用 route。模型达到配置的 `max_concurrency` 时，router 也会跳过当前模型继续选路。
 
 - `routing.runtime_cooldown_seconds` 控制冷却时间，默认 `30` 秒。
-- `400`、`401`、`403` 等请求格式或鉴权错误不会 fallback。
+- `router.fallback_models` 可指定 fallback 模型顺序，例如 `["glm-4-7-251222", "deepseek-v3-2-251201"]`；这些模型仍需通过 provider、level、model_group、能力、配额和并发过滤。
+- 请求体包含 `response_format.type` 时，router 会跳过配置了 `unsupported_response_format_types` 且包含该类型的模型实例；`/admin/route/preview` 使用同一套过滤逻辑。
+- 其它 `4xx` 错误不会 fallback，会直接返回给调用方。
 - 非流式 `/v1/chat/completions` 和 `/v1/responses` 都支持 runtime fallback。
 - 流式请求只支持首包前 fallback；一旦已有 SSE chunk 发给客户端，就不会在该流中切换模型。
 - `/v1/responses` 只会在 `responses_api: native` 的 endpoint 中 fallback。
@@ -524,7 +527,7 @@ curl --noproxy '*' -sS http://127.0.0.1:8000/admin/route/preview \
 
 - `200`：请求成功。
 - `429`：router 没有可用模型实例，通常是配额耗尽、request quota 达到上限，或筛选条件过窄。
-- 上游状态码，例如 `400`、`401`、`403`、`500`：router 会把非流式上游 HTTP 错误转换成同状态码的错误响应。
+- 上游状态码，例如 `400`、`401`、`403`、`429`、`500`：router 会先按 runtime fallback 规则尝试其它 route；如果没有可用 fallback，非流式请求会返回最终上游错误状态码。
 
 流式请求的残余限制：如果上游在 stream 开始后才报错，HTTP 响应可能已经以 `text/event-stream` 开始，无法再优雅改成 JSON 错误。调用方应同时处理 stream 中断、连接关闭和非 2xx 初始响应。
 

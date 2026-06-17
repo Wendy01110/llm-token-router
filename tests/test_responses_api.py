@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from token_router.app.config import ApiKeyConfig, EndpointConfig, ModelInstanceConfig
 from token_router.app.database import connect
 from token_router.app.main import create_app
+from token_router.app.router.selector import RouteSelector
 
 
 def _status_error(status_code=429, text="rate limited"):
@@ -74,14 +75,15 @@ class ChatOnlyProvider:
 
 
 class RuntimeFallbackNativeResponsesProvider:
-    def __init__(self):
+    def __init__(self, first_status_code=429):
+        self.first_status_code = first_status_code
         self.models = []
         self.stream_models = []
 
     async def responses(self, provider_config, api_key, payload):
         self.models.append(payload["model"])
         if payload["model"] == "native-a":
-            raise _status_error(429)
+            raise _status_error(self.first_status_code)
         return {
             "id": "resp_fallback",
             "object": "response",
@@ -99,7 +101,7 @@ class RuntimeFallbackNativeResponsesProvider:
     async def responses_stream(self, provider_config, api_key, payload):
         self.stream_models.append(payload["model"])
         if payload["model"] == "native-a":
-            raise _status_error(429)
+            raise _status_error(self.first_status_code)
         yield b'event: response.created\ndata: {"type":"response.created"}\n\n'
         yield (
             b'event: response.output_text.delta\n'
@@ -123,7 +125,7 @@ def _request_logs(usage_manager):
     with connect(usage_manager.db_path) as connection:
         return connection.execute(
             """
-                SELECT provider_name, key_id, model_name, prompt_tokens,
+                SELECT request_id, provider_name, key_id, model_name, prompt_tokens,
                    completion_tokens, total_tokens, status, error_message
             FROM request_logs
             ORDER BY id
@@ -168,6 +170,21 @@ def _enable_two_native_responses_models(app_config):
             groups=["general"],
         ),
     ]
+
+
+def _enable_ordered_native_responses_models(app_config):
+    _enable_two_native_responses_models(app_config)
+    app_config.model_instances.append(
+        ModelInstanceConfig(
+            name="native-c",
+            provider="native",
+            endpoint="api",
+            level=2,
+            priority=50,
+            keys=[{"key_id": "native-key", "daily_quota": 100}],
+            groups=["general"],
+        )
+    )
 
 
 def _enable_native_responses_custom_tool_fallback(app_config):
@@ -284,6 +301,93 @@ def test_responses_endpoint_falls_back_on_retryable_runtime_error(
     logs = _request_logs(usage_manager)
     assert [log["status"] for log in logs] == ["error", "ok"]
     assert logs[0]["model_name"] == "native-a"
+    assert logs[0]["request_id"] == logs[1]["request_id"]
+
+
+def test_responses_endpoint_falls_back_on_403_runtime_error(
+    app_config, usage_manager, fixed_now
+):
+    _enable_two_native_responses_models(app_config)
+    provider = RuntimeFallbackNativeResponsesProvider(first_status_code=403)
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/responses",
+        json={"model": "auto", "input": "hello", "router": {"level": 1}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "native-b"
+    assert provider.models == ["native-a", "native-b"]
+
+
+def test_responses_endpoint_uses_fallback_models_order_on_runtime_error(
+    app_config, usage_manager, fixed_now
+):
+    _enable_ordered_native_responses_models(app_config)
+    provider = RuntimeFallbackNativeResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/responses",
+        json={
+            "model": "auto",
+            "input": "hello",
+            "router": {
+                "level": 1,
+                "fallback_models": ["native-c", "native-b"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "native-c"
+    assert provider.models == ["native-a", "native-c"]
+
+
+def test_responses_endpoint_skips_saturated_model(
+    app_config, usage_manager, fixed_now
+):
+    _enable_two_native_responses_models(app_config)
+    app_config.model_instances[0].max_concurrency = 1
+    provider = RecordingNativeResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    selected = RouteSelector(app_config, usage_manager).select(
+        model="auto",
+        router={"level": 1},
+        quota_date="2026-05-27",
+        responses_api="native",
+    )
+    assert app.state.runtime_state.try_acquire_concurrency(selected) is True
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/v1/responses",
+            json={"model": "auto", "input": "hello", "router": {"level": 1}},
+        )
+    finally:
+        app.state.runtime_state.release_concurrency(selected)
+
+    assert response.status_code == 200
+    assert provider.payloads[0]["model"] == "native-b"
 
 
 def test_responses_endpoint_skips_unsupported_lower_level_model(
@@ -434,6 +538,47 @@ def test_responses_endpoint_stream_falls_back_before_first_chunk(
     assert usage_b.request_count == 1
     logs = _request_logs(usage_manager)
     assert [log["status"] for log in logs] == ["error", "ok"]
+
+
+def test_responses_endpoint_stream_skips_saturated_model_before_first_chunk(
+    app_config, usage_manager, fixed_now
+):
+    _enable_two_native_responses_models(app_config)
+    app_config.model_instances[0].max_concurrency = 1
+    provider = RecordingNativeResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    selected = RouteSelector(app_config, usage_manager).select(
+        model="auto",
+        router={"level": 1},
+        quota_date="2026-05-27",
+        responses_api="native",
+    )
+    assert app.state.runtime_state.try_acquire_concurrency(selected) is True
+    client = TestClient(app)
+
+    try:
+        with client.stream(
+            "POST",
+            "/v1/responses",
+            json={
+                "model": "auto",
+                "input": "hello",
+                "stream": True,
+                "router": {"level": 1},
+            },
+        ) as response:
+            body = b"".join(response.iter_bytes())
+    finally:
+        app.state.runtime_state.release_concurrency(selected)
+
+    assert response.status_code == 200
+    assert provider.stream_payloads[0]["model"] == "native-b"
+    assert b"event: response.output_text.delta" in body
 
 
 def test_responses_endpoint_skips_routes_with_unsupported_custom_tools(
