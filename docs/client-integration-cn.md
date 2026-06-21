@@ -372,6 +372,7 @@ curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
 router 的本地 quota 只能覆盖日配额和请求次数，不能完全反映上游 TPS/RPM 的瞬时状态。运行时调用上游时，如果遇到 `400`、`401`、`403`、`429`、`5xx`、网络错误或超时，router 会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在同一个请求内继续选择下一个可用 route。模型达到配置的 `max_concurrency` 时，router 也会跳过当前模型继续选路。
 
 - `routing.runtime_cooldown_seconds` 控制冷却时间，默认 `30` 秒。
+- OpenAI-compatible 上游调用的 router 侧单次 attempt HTTP 超时为 1800 秒；触发超时时按 runtime fallback 规则处理。
 - `router.fallback_models` 可指定 fallback 模型顺序，例如 `["glm-4-7-251222", "deepseek-v3-2-251201"]`；这些模型仍需通过 provider、level、model_group、能力、配额和并发过滤。
 - 请求体包含 `response_format.type` 时，router 会跳过配置了 `unsupported_response_format_types` 且包含该类型的模型实例；`/admin/route/preview` 使用同一套过滤逻辑。
 - 其它 `4xx` 错误不会 fallback，会直接返回给调用方。

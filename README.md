@@ -438,6 +438,8 @@ Ark uses different effort fields for Chat and Responses: Chat API uses top-level
 
 The router falls back to another eligible route when an upstream call fails with `400`, `401`, `403`, `429`, `5xx`, a network error, a timeout, or when the selected model is at `max_concurrency`. Other `4xx` responses are returned to the caller. Use `router.fallback_models` to order runtime fallback models without changing the initial normal route selection. Listed models still have to pass provider, level, model group, capability, quota, response format, and concurrency filters:
 
+OpenAI-compatible upstream calls use an 1800-second router-side HTTP timeout per attempt; timeout failures follow the runtime fallback rules above.
+
 ```json
 {
   "router": {

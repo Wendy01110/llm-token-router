@@ -269,6 +269,8 @@ router 会在选好模型后，把这些标准字段转换成最终 provider 支
 
 默认 cooldown 为 `routing.runtime_cooldown_seconds: 30`。非流式 Chat Completions 和原生 Responses 都支持 runtime fallback；流式请求只支持“首包前 fallback”，一旦已有 SSE chunk 发给客户端，就不会在同一个流里切换模型。
 
+OpenAI-compatible 上游调用的 router 侧单次 attempt HTTP 超时为 1800 秒；触发超时时按上述 runtime fallback 规则处理。
+
 可用 `router.fallback_models` 指定运行时 fallback 的模型顺序；它只在已经需要 fallback 时生效，不改变第一次正常选路，且列表内模型仍需通过 provider、level、model_group、能力、配额、响应格式和并发过滤：
 
 ```json

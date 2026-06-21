@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import httpx
 import pytest
@@ -62,6 +63,55 @@ def test_provider_uses_authorization_bearer_by_default():
 
 async def _collect_stream(stream):
     return [chunk async for chunk in stream]
+
+
+def test_provider_uses_long_router_side_upstream_timeout():
+    captured_timeouts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_timeouts.append(request.extensions["timeout"])
+        payload = json.loads(request.read() or b"{}")
+        if payload.get("stream"):
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=b"data: [DONE]\n\n",
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    async def run_requests():
+        provider = OpenAICompatibleProvider(transport=httpx.MockTransport(handler))
+        config = ProviderConfig(
+            type="openai_compatible",
+            base_url="https://example.test/v1",
+            keys=[ApiKeyConfig(id="test", value="sk-test")],
+        )
+
+        await provider.chat_completion(config, config.keys[0], {"model": "model-a"})
+        await _collect_stream(
+            provider.chat_completion_stream(
+                config,
+                config.keys[0],
+                {"model": "model-a", "stream": True},
+            )
+        )
+        await provider.responses(config, config.keys[0], {"model": "model-a"})
+        await _collect_stream(
+            provider.responses_stream(
+                config,
+                config.keys[0],
+                {"model": "model-a", "stream": True},
+            )
+        )
+
+    asyncio.run(run_requests())
+
+    assert captured_timeouts == [
+        {"connect": 1800, "read": 1800, "write": 1800, "pool": 1800},
+        {"connect": 1800, "read": 1800, "write": 1800, "pool": 1800},
+        {"connect": 1800, "read": 1800, "write": 1800, "pool": 1800},
+        {"connect": 1800, "read": 1800, "write": 1800, "pool": 1800},
+    ]
 
 
 def test_provider_streams_raw_sse_bytes():
