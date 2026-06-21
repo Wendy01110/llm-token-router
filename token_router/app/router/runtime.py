@@ -11,7 +11,7 @@ from token_router.app.schemas.router import SelectedRoute
 
 
 RouteKey: TypeAlias = tuple[str, str, str, str]
-ConcurrencyKey: TypeAlias = tuple[str, str, str]
+ConcurrencyKey: TypeAlias = tuple[str, str, str, str]
 
 
 def route_key(selected: SelectedRoute) -> RouteKey:
@@ -27,6 +27,7 @@ def concurrency_key(selected: SelectedRoute) -> ConcurrencyKey:
     return (
         selected.provider,
         selected.endpoint,
+        selected.key_id,
         selected.model_name,
     )
 

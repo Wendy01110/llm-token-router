@@ -369,7 +369,7 @@ curl --noproxy '*' -N http://127.0.0.1:8000/v1/chat/completions \
 
 ## Runtime fallback 与 cooldown
 
-router 的本地 quota 只能覆盖日配额和请求次数，不能完全反映上游 TPS/RPM 的瞬时状态。运行时调用上游时，如果遇到 `400`、`401`、`403`、`429`、`5xx`、网络错误或超时，router 会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在同一个请求内继续选择下一个可用 route。模型达到配置的 `max_concurrency` 时，router 也会跳过当前模型继续选路。
+router 的本地 quota 只能覆盖日配额和请求次数，不能完全反映上游 TPS/RPM 的瞬时状态。运行时调用上游时，如果遇到 `400`、`401`、`403`、`429`、`5xx`、网络错误或超时，router 会把当前 `(provider, endpoint, key_id, model)` 放入短暂 cooldown，并在同一个请求内继续选择下一个可用 route。当前 model/key route 达到配置的 `max_concurrency` 时，router 也会跳过当前 route 继续选路；同一模型的不同 key 分别计算并发。
 
 - `routing.runtime_cooldown_seconds` 控制冷却时间，默认 `30` 秒。
 - OpenAI-compatible 上游调用的 router 侧单次 attempt HTTP 超时为 1800 秒；触发超时时按 runtime fallback 规则处理。

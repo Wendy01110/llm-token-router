@@ -211,7 +211,7 @@ Fields:
 - `provider`: supplier name under `providers`.
 - `endpoint`: URL/key pool under that provider.
 - `level`: smaller is higher priority; `1` is strongest.
-- `max_concurrency`: maximum in-flight requests for this model instance. When it is saturated, the router skips it and selects another eligible model.
+- `max_concurrency`: maximum in-flight requests per model/key route. Multiple keys for the same model each get this limit independently; when one route is saturated, the router skips it and selects another eligible route.
 - `keys[].key_id`: key under that endpoint.
 - `keys[].daily_quota`: daily token budget for this model/key instance.
 - `keys[].daily_request_quota`: optional daily request budget for that key.
@@ -436,7 +436,7 @@ Ark uses different effort fields for Chat and Responses: Chat API uses top-level
 
 ### Runtime Fallback
 
-The router falls back to another eligible route when an upstream call fails with `400`, `401`, `403`, `429`, `5xx`, a network error, a timeout, or when the selected model is at `max_concurrency`. Other `4xx` responses are returned to the caller. Use `router.fallback_models` to order runtime fallback models without changing the initial normal route selection. Listed models still have to pass provider, level, model group, capability, quota, response format, and concurrency filters:
+The router falls back to another eligible route when an upstream call fails with `400`, `401`, `403`, `429`, `5xx`, a network error, a timeout, or when the selected model/key route is at `max_concurrency`. Other `4xx` responses are returned to the caller. Use `router.fallback_models` to order runtime fallback models without changing the initial normal route selection. Listed models still have to pass provider, level, model group, capability, quota, response format, and concurrency filters:
 
 OpenAI-compatible upstream calls use an 1800-second router-side HTTP timeout per attempt; timeout failures follow the runtime fallback rules above.
 
@@ -591,7 +591,7 @@ The page only reads saved report files. Refreshing it does not call Tavily or an
 
 - Provider adapters assume OpenAI-compatible APIs.
 - API keys are loaded from local config/environment variables.
-- There is no web UI, user auth, Redis locking, or retry/cooldown policy in this version.
+- There is no web UI, user auth, or Redis locking; runtime cooldown is stored in-process only.
 
 ## Tests
 

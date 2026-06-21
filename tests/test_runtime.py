@@ -42,17 +42,23 @@ def _selected_route(
     )
 
 
-def test_runtime_concurrency_limit_is_shared_across_keys_for_same_model():
+def test_runtime_concurrency_limit_is_per_key_for_same_model():
     state = RuntimeRouteState()
     key_one_route = _selected_route(key_id="k1", max_concurrency=2)
     key_two_route = _selected_route(key_id="k2", max_concurrency=2)
 
     assert state.try_acquire_concurrency(key_one_route) is True
-    assert state.try_acquire_concurrency(key_two_route) is True
+    assert state.try_acquire_concurrency(key_one_route) is True
     assert state.try_acquire_concurrency(key_one_route) is False
     assert state.concurrency_count(key_one_route) == 2
+    assert state.concurrency_count(key_two_route) == 0
 
-    state.release_concurrency(key_two_route)
+    assert state.try_acquire_concurrency(key_two_route) is True
+    assert state.try_acquire_concurrency(key_two_route) is True
+    assert state.try_acquire_concurrency(key_two_route) is False
+    assert state.concurrency_count(key_two_route) == 2
+
+    state.release_concurrency(key_one_route)
 
     assert state.try_acquire_concurrency(key_one_route) is True
 
