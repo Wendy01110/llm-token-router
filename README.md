@@ -438,7 +438,7 @@ Ark uses different effort fields for Chat and Responses: Chat API uses top-level
 
 The router falls back to another eligible route when an upstream call fails with `400`, `401`, `403`, `429`, `5xx`, a network error, a timeout, or when the selected model/key route is at `max_concurrency`. Other `4xx` responses are returned to the caller. Use `router.fallback_models` to order runtime fallback models without changing the initial normal route selection. Listed models still have to pass provider, level, model group, capability, quota, response format, and concurrency filters:
 
-OpenAI-compatible upstream calls use an 1800-second router-side HTTP timeout per attempt; timeout failures follow the runtime fallback rules above.
+OpenAI-compatible upstream calls use an 1800-second router-side HTTP timeout per non-streaming attempt and a 150-second timeout per streaming attempt; timeout failures follow the runtime fallback rules above.
 
 ```json
 {
@@ -544,7 +544,7 @@ http://127.0.0.1:8000/admin/usage
 
 ## Daily Model Evaluation
 
-The daily evaluator uses fixed Tavily daily-news queries with `topic` set to `general`, `news`, and `finance`, then asks every enabled `model_instance` and `key_id` in `config.yaml` to summarize the same hotspot context.
+The daily evaluator uses fixed Tavily daily-news queries with `topic` set to `general`, `news`, and `finance`, then asks enabled `model_instance` and `key_id` entries in `config.yaml` to summarize the same hotspot context. `volcengine_ark` is excluded from daily evaluation; normal routing can still use those models.
 
 Run it manually from the project root:
 

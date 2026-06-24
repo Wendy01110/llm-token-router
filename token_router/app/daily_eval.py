@@ -26,6 +26,7 @@ TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 DEFAULT_DAILY_EVAL_SCHEDULE_HOUR = 0
 DEFAULT_DAILY_EVAL_MAX_TOKENS = 100000
 DEFAULT_DAILY_EVAL_CONCURRENCY = 4
+DAILY_EVAL_EXCLUDED_PROVIDERS = frozenset({"volcengine_ark"})
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,8 @@ def expand_eval_targets(config: AppConfig) -> list[EvalTarget]:
     targets: list[EvalTarget] = []
     for instance in config.model_instances:
         if not instance.enabled:
+            continue
+        if instance.provider in DAILY_EVAL_EXCLUDED_PROVIDERS:
             continue
         for key_config in instance.iter_key_configs():
             if not key_config.enabled:

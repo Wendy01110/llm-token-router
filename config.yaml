@@ -9,24 +9,24 @@ routing:
   runtime_cooldown_seconds: 30
 
 providers:
-  xiaomi_mimo:
-    type: openai_compatible
-    stream_usage_mode: parse_only
-    endpoints:
-      token_plan:
-        base_url: ${MIMO_TOKEN_PLAN_BASE_URL}
-        auth_header: api_key
-        stream_usage_mode: no_option_usage_chunk
-        keys:
-          - id: mimo_token_plan
-            value: ${MIMO_TOKEN_PLAN_KEY}
-      # Future extension example: keep commented until you have a separate API key.
-      # api:
-      #   base_url: ${MIMO_API_BASE_URL}
-      #   auth_header: api_key
-      #   keys:
-      #     - id: mimo_api
-      #       value: ${MIMO_API_KEY}
+  # xiaomi_mimo:
+  #   type: openai_compatible
+  #   stream_usage_mode: parse_only
+  #   endpoints:
+  #     token_plan:
+  #       base_url: ${MIMO_TOKEN_PLAN_BASE_URL}
+  #       auth_header: api_key
+  #       stream_usage_mode: no_option_usage_chunk
+  #       keys:
+  #         - id: mimo_token_plan
+  #           value: ${MIMO_TOKEN_PLAN_KEY}
+  #     # Future extension example: keep commented until you have a separate API key.
+  #     # api:
+  #     #   base_url: ${MIMO_API_BASE_URL}
+  #     #   auth_header: api_key
+  #     #   keys:
+  #     #     - id: mimo_api
+  #     #       value: ${MIMO_API_KEY}
 
   volcengine_ark:
     type: openai_compatible
@@ -69,16 +69,44 @@ providers:
             value: ${OPENROUTER_API_KEY_2}
 
 model_instances:
-  - name: mimo-v2.5-pro
-    provider: xiaomi_mimo
-    endpoint: token_plan
+  # - name: mimo-v2.5-pro
+  #   provider: xiaomi_mimo
+  #   endpoint: token_plan
+  #   level: 1
+  #   max_concurrency: 2
+  #   keys:
+  #     - key_id: mimo_token_plan
+  #       daily_quota: 200000000
+  #       priority: 10
+  #   groups: [coding, general]
+
+  - name: doubao-seed-2-1-turbo-260628
+    provider: volcengine_ark
+    endpoint: api
     level: 1
-    max_concurrency: 2
+    max_concurrency: 4
     keys:
-      - key_id: mimo_token_plan
-        daily_quota: 200000000
+      - key_id: volcengine_ark_1
+        daily_quota: 1800000
         priority: 10
-    groups: [coding, general]
+      - key_id: volcengine_ark_2
+        daily_quota: 1800000
+        priority: 10
+    groups: [reasoning, general]
+
+  - name: doubao-seed-2-1-pro-260628
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    max_concurrency: 4
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1800000
+        priority: 10
+      - key_id: volcengine_ark_2
+        daily_quota: 1800000
+        priority: 10
+    groups: [reasoning, general]
 
   - name: doubao-seed-2-0-pro-260215
     provider: volcengine_ark
@@ -87,10 +115,10 @@ model_instances:
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 20
       - key_id: volcengine_ark_2
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 20
     groups: [reasoning, general]
 
@@ -101,10 +129,10 @@ model_instances:
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 20
       - key_id: volcengine_ark_2
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 20
     groups: [reasoning, coding, general]
     unsupported_response_format_types: [json_object]
@@ -116,10 +144,10 @@ model_instances:
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 30
       - key_id: volcengine_ark_2
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 30
     groups: [general, fallback]
 
@@ -130,10 +158,10 @@ model_instances:
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 40
       - key_id: volcengine_ark_2
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 40
     groups: [general, coding, fallback]
 
@@ -144,10 +172,10 @@ model_instances:
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 50
       - key_id: volcengine_ark_2
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 50
     groups: [reasoning, general, fallback]
 
@@ -158,8 +186,19 @@ model_instances:
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 1600000
+        daily_quota: 1800000
         priority: 60
+    groups: [reasoning, general, fallback]
+
+  - name: doubao-seed-1-8-251228
+    provider: volcengine_ark
+    endpoint: api
+    level: 3
+    max_concurrency: 4
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1800000
+        priority: 45
     groups: [reasoning, general, fallback]
 
   - name: ${AGNES_MODEL}

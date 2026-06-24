@@ -123,7 +123,7 @@ Ark Responses uses a different effort shape from Ark Chat: Responses effort is `
 
 Local quota records do not fully capture upstream TPS/RPM pressure. At runtime, the router falls back to another eligible route when an upstream call fails with `400`, `401`, `403`, `429`, `5xx`, network errors, timeouts, or when the selected model/key route is at `max_concurrency`. The failed `(provider, endpoint, key_id, model)` enters an in-process cooldown controlled by `routing.runtime_cooldown_seconds` (default `30`). Multiple keys for the same model each get their own `max_concurrency` limit.
 
-OpenAI-compatible upstream calls use an 1800-second router-side HTTP timeout per attempt; timeout failures follow the runtime fallback rules above.
+OpenAI-compatible upstream calls use an 1800-second router-side HTTP timeout per non-streaming attempt and a 150-second timeout per streaming attempt; timeout failures follow the runtime fallback rules above.
 
 Use `router.fallback_models` to order runtime fallback candidates without changing the initial normal route selection. The listed models still have to pass provider, level, model group, capability, quota, response format, and concurrency filters.
 

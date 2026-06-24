@@ -153,6 +153,59 @@ def test_expand_eval_targets_expands_each_enabled_model_key():
     ]
 
 
+def test_expand_eval_targets_skips_volcengine_ark_daily_targets():
+    config = AppConfig(
+        refresh=RefreshConfig(timezone="Asia/Shanghai", daily_reset_hour=11),
+        routing=RoutingConfig(
+            default_level=1,
+            fallback_enabled=True,
+            max_fallback_level=5,
+        ),
+        providers={
+            "volcengine_ark": ProviderConfig(
+                type="openai_compatible",
+                endpoints={
+                    "api": EndpointConfig(
+                        base_url="https://ark.example.test/api/v3",
+                        keys=[ApiKeyConfig(id="ark-1", value="sk-ark")],
+                    )
+                },
+            ),
+            "openrouter": ProviderConfig(
+                type="openai_compatible",
+                endpoints={
+                    "api": EndpointConfig(
+                        base_url="https://openrouter.example.test/api/v1",
+                        keys=[ApiKeyConfig(id="or-1", value="sk-or")],
+                    )
+                },
+            ),
+        },
+        model_instances=[
+            ModelInstanceConfig(
+                name="doubao-seed-test",
+                provider="volcengine_ark",
+                endpoint="api",
+                level=1,
+                keys=[{"key_id": "ark-1", "daily_quota": 1000}],
+                groups=["general"],
+            ),
+            ModelInstanceConfig(
+                name="openrouter-test",
+                provider="openrouter",
+                endpoint="api",
+                level=1,
+                keys=[{"key_id": "or-1", "daily_quota": 1000}],
+                groups=["general"],
+            ),
+        ],
+    )
+
+    targets = expand_eval_targets(config)
+
+    assert [target.provider for target in targets] == ["openrouter"]
+
+
 def test_hotspot_queries_use_daily_news_topics():
     assert [query.topic for query in HOTSPOT_QUERIES] == [
         "general",

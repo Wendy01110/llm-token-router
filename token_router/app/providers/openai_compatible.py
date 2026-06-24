@@ -8,6 +8,10 @@ import httpx
 from token_router.app.config import ApiKeyConfig, EndpointConfig, ProviderConfig
 
 
+NON_STREAM_TIMEOUT_SECONDS = 1800
+STREAM_TIMEOUT_SECONDS = 150
+
+
 class OpenAICompatibleProvider:
     def __init__(self, transport: httpx.AsyncBaseTransport | None = None):
         self.transport = transport
@@ -20,7 +24,9 @@ class OpenAICompatibleProvider:
     ) -> dict[str, Any]:
         url = f"{provider_config.base_url.rstrip('/')}/chat/completions"
         headers = self._headers(provider_config, api_key)
-        async with httpx.AsyncClient(timeout=1800, transport=self.transport) as client:
+        async with httpx.AsyncClient(
+            timeout=NON_STREAM_TIMEOUT_SECONDS, transport=self.transport
+        ) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
@@ -33,7 +39,9 @@ class OpenAICompatibleProvider:
     ) -> AsyncIterator[bytes]:
         url = f"{provider_config.base_url.rstrip('/')}/chat/completions"
         headers = self._headers(provider_config, api_key)
-        async with httpx.AsyncClient(timeout=1800, transport=self.transport) as client:
+        async with httpx.AsyncClient(
+            timeout=STREAM_TIMEOUT_SECONDS, transport=self.transport
+        ) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as response:
                 await _raise_for_status_with_body(response)
                 async for chunk in response.aiter_bytes():
@@ -47,7 +55,9 @@ class OpenAICompatibleProvider:
     ) -> dict[str, Any]:
         url = f"{provider_config.base_url.rstrip('/')}/responses"
         headers = self._headers(provider_config, api_key)
-        async with httpx.AsyncClient(timeout=1800, transport=self.transport) as client:
+        async with httpx.AsyncClient(
+            timeout=NON_STREAM_TIMEOUT_SECONDS, transport=self.transport
+        ) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
@@ -60,7 +70,9 @@ class OpenAICompatibleProvider:
     ) -> AsyncIterator[bytes]:
         url = f"{provider_config.base_url.rstrip('/')}/responses"
         headers = self._headers(provider_config, api_key)
-        async with httpx.AsyncClient(timeout=1800, transport=self.transport) as client:
+        async with httpx.AsyncClient(
+            timeout=STREAM_TIMEOUT_SECONDS, transport=self.transport
+        ) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as response:
                 await _raise_for_status_with_body(response)
                 async for chunk in response.aiter_bytes():

@@ -65,7 +65,7 @@ async def _collect_stream(stream):
     return [chunk async for chunk in stream]
 
 
-def test_provider_uses_long_router_side_upstream_timeout():
+def test_provider_uses_shorter_router_side_upstream_timeout_for_streaming():
     captured_timeouts = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -108,9 +108,9 @@ def test_provider_uses_long_router_side_upstream_timeout():
 
     assert captured_timeouts == [
         {"connect": 1800, "read": 1800, "write": 1800, "pool": 1800},
+        {"connect": 150, "read": 150, "write": 150, "pool": 150},
         {"connect": 1800, "read": 1800, "write": 1800, "pool": 1800},
-        {"connect": 1800, "read": 1800, "write": 1800, "pool": 1800},
-        {"connect": 1800, "read": 1800, "write": 1800, "pool": 1800},
+        {"connect": 150, "read": 150, "write": 150, "pool": 150},
     ]
 
 
