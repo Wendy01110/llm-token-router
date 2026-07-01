@@ -114,6 +114,22 @@ class RuntimeFallbackNativeResponsesProvider:
         )
 
 
+class EmptyThenFallbackResponsesProvider(RuntimeFallbackNativeResponsesProvider):
+    async def responses_stream(self, provider_config, api_key, payload):
+        self.stream_models.append(payload["model"])
+        if payload["model"] == "native-a":
+            return
+        yield (
+            b'event: response.output_text.delta\n'
+            b'data: {"type":"response.output_text.delta","delta":"OK"}\n\n'
+        )
+        yield (
+            b'event: response.completed\n'
+            b'data: {"type":"response.completed","response":'
+            b'{"usage":{"input_tokens":6,"output_tokens":4,"total_tokens":10}}}\n\n'
+        )
+
+
 class MidStreamErrorResponsesProvider(RecordingNativeResponsesProvider):
     async def responses_stream(self, provider_config, api_key, payload):
         self.stream_payloads.append(payload)
@@ -538,6 +554,47 @@ def test_responses_endpoint_stream_falls_back_before_first_chunk(
     assert usage_b.request_count == 1
     logs = _request_logs(usage_manager)
     assert [log["status"] for log in logs] == ["error", "ok"]
+
+
+def test_responses_endpoint_stream_falls_back_when_upstream_ends_before_first_chunk(
+    app_config, usage_manager, fixed_now
+):
+    _enable_two_native_responses_models(app_config)
+    provider = EmptyThenFallbackResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/v1/responses",
+        json={
+            "model": "auto",
+            "input": "hello",
+            "stream": True,
+            "router": {"level": 1},
+        },
+    ) as response:
+        body = b"".join(response.iter_bytes())
+
+    assert response.status_code == 200
+    assert provider.stream_models == ["native-a", "native-b"]
+    assert b"event: response.output_text.delta" in body
+    usage_a = usage_manager.get_usage(
+        "native", "native-key", "native-a", "2026-05-27"
+    )
+    usage_b = usage_manager.get_usage(
+        "native", "native-key", "native-b", "2026-05-27"
+    )
+    assert usage_a.request_count == 0
+    assert usage_b.request_count == 1
+    logs = _request_logs(usage_manager)
+    assert [log["status"] for log in logs] == ["error", "ok"]
+    assert "stream ended before first chunk" in logs[0]["error_message"]
 
 
 def test_responses_endpoint_stream_skips_saturated_model_before_first_chunk(

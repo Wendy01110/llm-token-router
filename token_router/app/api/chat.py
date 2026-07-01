@@ -254,7 +254,27 @@ async def _open_chat_stream_with_fallback(
             )
             first_chunk = await anext(stream)
         except StopAsyncIteration:
-            return selected, stream, None
+            exc = _empty_stream_error()
+            _log_chat_request(
+                usage_manager=usage_manager,
+                request_id=request_id,
+                selected=selected,
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                status="error",
+                error_message=_http_error_message(exc),
+                started_at=attempt_started_at,
+            )
+            runtime_state.mark_cooldown(
+                selected,
+                config.routing.runtime_cooldown_seconds,
+            )
+            excluded_routes.add(route_key(selected))
+            last_error = exc
+            use_fallback_models = True
+            runtime_state.release_concurrency(selected)
+            continue
         except httpx.HTTPError as exc:
             _log_chat_request(
                 usage_manager=usage_manager,
@@ -293,6 +313,10 @@ def _raise_runtime_http_error(exc: httpx.HTTPError) -> None:
             detail=_response_error_text(exc.response) or str(exc),
         ) from exc
     raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _empty_stream_error() -> httpx.RequestError:
+    return httpx.RemoteProtocolError("upstream stream ended before first chunk")
 
 
 def _http_error_message(exc: httpx.HTTPError) -> str:

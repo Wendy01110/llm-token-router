@@ -10,7 +10,12 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from token_router.app.api.chat import _find_api_key, _get_config, _router_headers
+from token_router.app.api.chat import (
+    _empty_stream_error,
+    _find_api_key,
+    _get_config,
+    _router_headers,
+)
 from token_router.app.config import ApiKeyConfig, AppConfig, EndpointConfig
 from token_router.app.router.quota import quota_date_for
 from token_router.app.router.runtime import (
@@ -225,7 +230,25 @@ async def _open_responses_stream_with_fallback(
             )
             first_chunk = await anext(stream)
         except StopAsyncIteration:
-            return selected, stream, None
+            exc = _empty_stream_error()
+            _log_response_request(
+                usage_manager=usage_manager,
+                request_id=request_id,
+                selected=selected,
+                usage={},
+                status="error",
+                error_message=_http_error_message(exc),
+                started_at=attempt_started_at,
+            )
+            runtime_state.mark_cooldown(
+                selected,
+                config.routing.runtime_cooldown_seconds,
+            )
+            excluded_routes.add(route_key(selected))
+            last_error = exc
+            use_fallback_models = True
+            runtime_state.release_concurrency(selected)
+            continue
         except httpx.HTTPError as exc:
             _log_response_request(
                 usage_manager=usage_manager,

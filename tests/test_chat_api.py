@@ -194,6 +194,22 @@ class RuntimeFallbackStreamingProvider:
         yield b"data: [DONE]\n\n"
 
 
+class EmptyThenFallbackStreamingProvider:
+    def __init__(self):
+        self.models = []
+
+    async def chat_completion_stream(self, provider_config, api_key, payload):
+        self.models.append(payload["model"])
+        if payload["model"] == "model-a":
+            return
+        yield b'data: {"choices":[{"delta":{"content":"OK"}}],"usage":null}\n\n'
+        yield (
+            b'data: {"choices":[],"usage":'
+            b'{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n'
+        )
+        yield b"data: [DONE]\n\n"
+
+
 def _add_runtime_fallback_model(app_config):
     app_config.model_instances.append(
         ModelInstanceConfig(
@@ -564,6 +580,43 @@ def test_chat_endpoint_stream_falls_back_before_first_chunk(
     assert usage_b.request_count == 1
     logs = _request_logs(usage_manager)
     assert [log["status"] for log in logs] == ["error", "ok"]
+
+
+def test_chat_endpoint_stream_falls_back_when_upstream_ends_before_first_chunk(
+    app_config, usage_manager, fixed_now
+):
+    _add_runtime_fallback_model(app_config)
+    provider = EmptyThenFallbackStreamingProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    with client.stream(
+        "POST",
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": True,
+            "router": {"level": 1},
+        },
+    ) as response:
+        body = b"".join(response.iter_bytes())
+
+    assert response.status_code == 200
+    assert provider.models == ["model-a", "model-b"]
+    assert b'{"delta":{"content":"OK"}}' in body
+    usage_a = usage_manager.get_usage("test", "k1", "model-a", "2026-05-27")
+    usage_b = usage_manager.get_usage("test", "k1", "model-b", "2026-05-27")
+    assert usage_a.request_count == 0
+    assert usage_b.request_count == 1
+    logs = _request_logs(usage_manager)
+    assert [log["status"] for log in logs] == ["error", "ok"]
+    assert "stream ended before first chunk" in logs[0]["error_message"]
 
 
 def test_chat_endpoint_stream_skips_saturated_model_before_first_chunk(
