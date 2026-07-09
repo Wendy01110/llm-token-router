@@ -76,6 +76,7 @@ class EvalTarget:
     endpoint: str
     key_id: str
     model_name: str
+    upstream_model_name: str
     level: int
     daily_quota: int
     daily_request_quota: int | None
@@ -158,6 +159,7 @@ def expand_eval_targets(config: AppConfig) -> list[EvalTarget]:
                     endpoint=instance.endpoint,
                     key_id=key_config.key_id,
                     model_name=instance.name,
+                    upstream_model_name=instance.upstream_model_name,
                     level=instance.level,
                     daily_quota=key_config.daily_quota,
                     daily_request_quota=key_config.daily_request_quota,
@@ -268,7 +270,9 @@ async def run_model_eval(
 ) -> ModelEvalResult:
     endpoint_config = config.providers[target.provider].get_endpoint(target.endpoint)
     api_key = find_api_key(endpoint_config, target.key_id)
-    payload = build_eval_payload(target.model_name, hotspot_context, max_tokens)
+    payload = build_eval_payload(
+        target.upstream_model_name, hotspot_context, max_tokens
+    )
     started_at = perf_counter()
 
     try:

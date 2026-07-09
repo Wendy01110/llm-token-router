@@ -433,6 +433,7 @@ router 的本地 quota 只能覆盖日配额和请求次数，不能完全反映
 | --------------------- | ---------------- | ----------------- | ----------------- |
 | `xiaomi_mimo`         | `thinking.type=enabled` | `thinking.type=disabled` | 不转发 |
 | `volcengine_ark` Chat | `thinking.type=enabled` | `thinking.type=disabled` | 仅 `doubao-seed-2-0*` 转成顶层 `reasoning_effort` |
+| `deepseek`            | `thinking.type=enabled` | `thinking.type=disabled` | 转成顶层 `reasoning_effort` |
 | `openrouter`          | `reasoning.enabled=true`，或 `reasoning.effort=<value>` | `reasoning.effort=none` | 转成 `reasoning.effort` |
 
 Ark 模型差异：
@@ -469,6 +470,74 @@ Ark 模型差异：
   }
 }
 ```
+
+### 按量收费模型调用
+
+按量模型用 `payg/...` 前缀和普通模型名区分。当前配置包含：
+
+| 调用方 `model` | 上游模型 ID | Provider | Key 环境变量 |
+| --- | --- | --- | --- |
+| `payg/deepseek-v4-pro` | `deepseek-v4-pro` | `deepseek` | `DS_PAYG_API_KEY` |
+| `payg/doubao-seed-2-1-pro-260628` | `doubao-seed-2-1-pro-260628` | `volcengine_ark` | `ARK_PAYG_API_KEY` |
+| `payg/doubao-seed-2-1-turbo-260628` | `doubao-seed-2-1-turbo-260628` | `volcengine_ark` | `ARK_PAYG_API_KEY` |
+
+这些模型都设置了 `requires_explicit_model: true`，不会被 `model: "auto"` 自动选中。调用方必须显式传对应的 `payg/...` 模型名，并建议同时传：
+
+- `router.provider`：和目标模型的 provider 一致。
+- `router.level: 1`。
+- `router.fallback: false`。
+- `router.strict_model: true`。
+
+DeepSeek V4 Pro 按量调用示例：
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "payg/deepseek-v4-pro",
+    "messages": [{"role": "user", "content": "Reply with OK."}],
+    "max_tokens": 64,
+    "router": {
+      "provider": "deepseek",
+      "level": 1,
+      "fallback": false,
+      "strict_model": true,
+      "thinking": true,
+      "thinking_effort": "max",
+      "debug": true
+    }
+  }'
+```
+
+DeepSeek 官方 OpenAI-compatible endpoint 使用 `https://api.deepseek.com`，上游模型 ID 为 `deepseek-v4-pro`。本地 router 会把调用方模型名 `payg/deepseek-v4-pro` 映射成上游模型名；显式 provider 调用时，建议按 DeepSeek 官方 Chat Completions 参数传 `max_tokens`。需要关闭思考时，把 `router.thinking` 改为 `false`，或直接不传 `router.thinking` 以使用上游默认行为。
+
+Doubao 2.1 Pro 按量调用示例：
+
+```bash
+curl --noproxy '*' -sS http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "payg/doubao-seed-2-1-pro-260628",
+    "messages": [{"role": "user", "content": "Reply with OK."}],
+    "max_completion_tokens": 64,
+    "router": {
+      "provider": "volcengine_ark",
+      "level": 1,
+      "fallback": false,
+      "strict_model": true,
+      "thinking": false,
+      "debug": true
+    }
+  }'
+```
+
+Doubao 2.1 Turbo 按量调用只需要把 `model` 换成 `payg/doubao-seed-2-1-turbo-260628`：
+
+```json
+"model": "payg/doubao-seed-2-1-turbo-260628"
+```
+
+Doubao 2.1 按量模型通过 `upstream_model` 映射到火山 Ark 原始模型 ID；客户端只需要传 `payg/...` 名称。Chat Completions 建议使用 `max_completion_tokens`。如果传 `router.thinking`，router 会给 Ark Chat API 生成 `thinking.type`；当前只对 `doubao-seed-2-0*` 模型额外转发顶层 `reasoning_effort`，2.1 按量模型不要依赖 `thinking_effort` 生效。
 
 强制走 OpenRouter 免费兜底：
 

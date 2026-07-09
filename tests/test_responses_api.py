@@ -285,6 +285,52 @@ def test_responses_endpoint_proxies_native_response_and_records_usage(
     assert logs[0]["total_tokens"] == 12
 
 
+def test_responses_endpoint_sends_upstream_model_for_client_model_alias(
+    app_config, usage_manager, fixed_now
+):
+    _enable_native_responses_endpoint(app_config)
+    app_config.model_instances[0] = ModelInstanceConfig(
+        name="payg/native-model",
+        upstream_model="native-model",
+        provider="native",
+        endpoint="api",
+        level=1,
+        keys=[{"key_id": "native-key", "daily_quota": 100}],
+        groups=["general"],
+        requires_explicit_model=True,
+    )
+    provider = RecordingNativeResponsesProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/responses",
+        json={
+            "model": "payg/native-model",
+            "input": "hello",
+            "router": {
+                "level": 1,
+                "strict_model": True,
+                "fallback": False,
+                "debug": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert provider.payloads[0]["model"] == "native-model"
+    assert response.headers["X-Router-Model"] == "payg/native-model"
+    usage = usage_manager.get_usage(
+        "native", "native-key", "payg/native-model", "2026-05-27"
+    )
+    assert usage.total_tokens == 12
+
+
 def test_responses_endpoint_falls_back_on_retryable_runtime_error(
     app_config, usage_manager, fixed_now
 ):

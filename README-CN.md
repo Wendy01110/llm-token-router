@@ -16,7 +16,7 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-编辑 `.env`，填入你当前的小米 MiMo Token/Coding Plan key、火山方舟 key、OpenRouter key 和 Tavily key：
+编辑 `.env`，填入你当前的小米 MiMo Token/Coding Plan key、火山方舟 key、DeepSeek key、OpenRouter key 和 Tavily key：
 
 ```bash
 MIMO_TOKEN_PLAN_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
@@ -25,7 +25,10 @@ MIMO_TOKEN_PLAN_MODEL=mimo-v2.5-pro
 
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARK_API_KEY=...
+ARK_PAYG_API_KEY=...
 ARK_MODEL=doubao-seed-2-0-lite-260215
+
+DS_PAYG_API_KEY=...
 
 AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
 AGNES_API_KEY=...
@@ -41,10 +44,11 @@ TAVILY_API_KEY=tvly-...
 
 `load_config()` 会先读取 `config.yaml` 同目录下的 `.env`，再解析配置里的 `${VAR_NAME}`。如果同名变量已经存在于 shell 环境变量中，shell 里的值优先。
 
-`config.example.yaml` 默认启用四个供应商：
+`config.example.yaml` 默认启用五个供应商：
 
 - `xiaomi_mimo`
 - `volcengine_ark`
+- `deepseek`
 - `agnes`
 - `openrouter`
 
@@ -462,7 +466,8 @@ model_instances:
 
 字段说明：
 
-- `name`：上游平台真实模型名。
+- `name`：调用方传入 router 的模型名。
+- `upstream_model`：可选，上游平台真实模型名；不填时默认等于 `name`。
 - `provider`：`providers` 下面的供应商名。
 - `endpoint`：该供应商下面的 URL/key 池。
 - `level`：等级，数字越小优先级越高，`1` 最高。
@@ -472,7 +477,52 @@ model_instances:
 - `keys[].daily_request_quota`：可选的每日请求次数额度。
 - `keys[].priority`：同等级、同阶段内的排序，数字越小越优先。
 - `groups`：可选标签，例如 `coding`、`general`、`reasoning`、`fallback`。
+- `requires_explicit_model`：设为 `true` 时，该模型不会进入 `model: "auto"` 自动选路，只能通过显式 `model` 调用；适合按量收费模型。
 - `unsupported_response_format_types`：可选的响应格式过滤列表，例如 `[json_object]`；请求该格式时会跳过这个模型实例。
+
+按量收费模型建议单独使用 key，并要求显式模型调用：
+
+```yaml
+model_instances:
+  - name: payg/deepseek-v4-pro
+    upstream_model: deepseek-v4-pro
+    provider: deepseek
+    endpoint: api
+    level: 1
+    max_concurrency: 4
+    requires_explicit_model: true
+    keys:
+      - key_id: deepseek_payg
+        daily_quota: 1800000
+        priority: 10
+    groups: [reasoning, coding, general]
+
+  - name: payg/doubao-seed-2-1-pro-260628
+    upstream_model: doubao-seed-2-1-pro-260628
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    max_concurrency: 4
+    requires_explicit_model: true
+    keys:
+      - key_id: volcengine_ark_payg
+        daily_quota: 1800000
+        priority: 10
+    groups: [reasoning, general]
+
+  - name: payg/doubao-seed-2-1-turbo-260628
+    upstream_model: doubao-seed-2-1-turbo-260628
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    max_concurrency: 4
+    requires_explicit_model: true
+    keys:
+      - key_id: volcengine_ark_payg
+        daily_quota: 1800000
+        priority: 10
+    groups: [reasoning, general]
+```
 
 ### 禁用或删除模型
 

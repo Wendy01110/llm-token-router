@@ -9,6 +9,7 @@ class SelectedRoute:
     endpoint: str
     key_id: str
     model_name: str
+    upstream_model_name: str
     level: int
     daily_quota: int
     daily_request_quota: int | None

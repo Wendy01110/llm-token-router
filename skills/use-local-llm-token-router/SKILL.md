@@ -116,6 +116,7 @@ For Chat Completions automatic routes, provider thinking fields differ:
 - OpenRouter uses `reasoning.effort` or `reasoning.enabled`.
 - Xiaomi MiMo uses `thinking.type`.
 - Volcengine Ark Chat uses `thinking.type`; Ark Chat models that support effort keep top-level `reasoning_effort`.
+- DeepSeek uses `thinking.type`; when `router.thinking_effort` is present, keep it as top-level `reasoning_effort`.
 
 Ark Responses uses a different effort shape from Ark Chat: Responses effort is `reasoning.effort`, not top-level `reasoning_effort`. The local `/v1/responses` endpoint is a native proxy and currently does not translate `router.thinking` or `router.thinking_effort`; send provider-native `thinking` and `reasoning` fields for Responses thinking control.
 
@@ -145,6 +146,32 @@ Native Responses requests use the same runtime fallback behavior, but only among
 - If sending `response_format.type`, let the router skip models configured with incompatible `unsupported_response_format_types`.
 - If the user wants router-native thinking control for Chat Completions, use `router.thinking` and optional `router.thinking_effort`; these override top-level `reasoning_effort`.
 - For `/v1/responses`, do not rely on `router.thinking`; pass the upstream-native Responses thinking fields directly.
+
+## PayG Explicit Models
+
+Pay-as-you-go models use a `payg/...` client-facing model name and are configured with `requires_explicit_model: true`, so `model: "auto"` will not select them. Force the exact model and disable fallback unless the user explicitly wants runtime fallback to another model:
+
+```json
+{
+  "model": "payg/deepseek-v4-pro",
+  "router": {
+    "provider": "deepseek",
+    "level": 1,
+    "fallback": false,
+    "strict_model": true
+  }
+}
+```
+
+Current PayG client model names:
+
+| Client model | Upstream model | Provider |
+| --- | --- | --- |
+| `payg/deepseek-v4-pro` | `deepseek-v4-pro` | `deepseek` |
+| `payg/doubao-seed-2-1-pro-260628` | `doubao-seed-2-1-pro-260628` | `volcengine_ark` |
+| `payg/doubao-seed-2-1-turbo-260628` | `doubao-seed-2-1-turbo-260628` | `volcengine_ark` |
+
+For DeepSeek PayG, prefer DeepSeek's Chat Completions parameter name `max_tokens` when `router.provider` is explicitly `deepseek`. For Doubao PayG, prefer `max_completion_tokens`. When enabling thinking for DeepSeek, use `router.thinking: true` and `router.thinking_effort` such as `"high"` or `"max"`. For Doubao 2.1 PayG, `router.thinking` maps to Ark `thinking.type`; do not rely on `thinking_effort` for those 2.1 models.
 
 ## Python SDK Pattern
 

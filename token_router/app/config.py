@@ -115,6 +115,7 @@ class ModelInstanceKeyConfig(BaseModel):
 
 class ModelInstanceConfig(BaseModel):
     name: str
+    upstream_model: str | None = None
     provider: str
     endpoint: str = "default"
     key_id: str | None = None
@@ -125,7 +126,12 @@ class ModelInstanceConfig(BaseModel):
     groups: list[str] = Field(default_factory=list)
     max_concurrency: int = Field(default=2, ge=1)
     unsupported_response_format_types: list[str] = Field(default_factory=list)
+    requires_explicit_model: bool = False
     enabled: bool = True
+
+    @property
+    def upstream_model_name(self) -> str:
+        return self.upstream_model or self.name
 
     @model_validator(mode="after")
     def validate_key_shape(self) -> ModelInstanceConfig:

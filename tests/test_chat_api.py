@@ -291,6 +291,49 @@ def test_chat_endpoint_counts_successful_request_without_usage(
     assert usage.request_count == 1
 
 
+def test_chat_endpoint_sends_upstream_model_for_client_model_alias(
+    app_config, usage_manager, fixed_now
+):
+    app_config.model_instances[0] = ModelInstanceConfig(
+        name="payg/model-a",
+        upstream_model="model-a",
+        provider="test",
+        endpoint="api",
+        level=1,
+        priority=10,
+        keys=[{"key_id": "k1", "daily_quota": 100}],
+        requires_explicit_model=True,
+    )
+    provider = RecordingProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "payg/model-a",
+            "messages": [{"role": "user", "content": "hello"}],
+            "router": {
+                "level": 1,
+                "strict_model": True,
+                "fallback": False,
+                "debug": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert provider.payloads[0]["model"] == "model-a"
+    assert response.headers["X-Router-Model"] == "payg/model-a"
+    usage = usage_manager.get_usage("test", "k1", "payg/model-a", "2026-05-27")
+    assert usage.total_tokens == 5
+
+
 def test_chat_endpoint_falls_back_on_retryable_runtime_error_and_cools_route(
     app_config, usage_manager, fixed_now
 ):
@@ -986,6 +1029,50 @@ def test_chat_endpoint_adapts_reasoning_effort_for_mimo_auto_model(
     payload = provider.payloads[0]
     assert payload["thinking"] == {"type": "enabled"}
     assert "reasoning_effort" not in payload
+
+
+def test_chat_endpoint_adapts_router_thinking_for_deepseek(
+    app_config, usage_manager, fixed_now
+):
+    app_config.providers["deepseek"] = app_config.providers.pop("test")
+    app_config.model_instances[0] = ModelInstanceConfig(
+        name="payg/deepseek-v4-pro",
+        upstream_model="deepseek-v4-pro",
+        provider="deepseek",
+        endpoint="api",
+        level=1,
+        keys=[{"key_id": "k1", "daily_quota": 100}],
+        requires_explicit_model=True,
+    )
+    provider = RecordingProvider()
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=provider,
+        now_fn=lambda: fixed_now,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "payg/deepseek-v4-pro",
+            "messages": [{"role": "user", "content": "hello"}],
+            "router": {
+                "level": 1,
+                "strict_model": True,
+                "fallback": False,
+                "thinking": True,
+                "thinking_effort": "max",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = provider.payloads[0]
+    assert payload["model"] == "deepseek-v4-pro"
+    assert payload["thinking"] == {"type": "enabled"}
+    assert payload["reasoning_effort"] == "max"
 
 
 def test_chat_endpoint_removes_stream_options_for_auto_no_option_stream_provider(

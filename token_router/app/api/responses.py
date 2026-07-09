@@ -181,7 +181,7 @@ def _prepare_responses_attempt(
     endpoint_config = provider_config.get_endpoint(selected.endpoint)
     api_key = _find_api_key(endpoint_config, selected.key_id)
     outgoing_payload = request_payload.model_dump(exclude_none=True)
-    outgoing_payload["model"] = selected.model_name
+    outgoing_payload["model"] = selected.upstream_model_name
     outgoing_payload.pop("router", None)
     return selected, endpoint_config, api_key, outgoing_payload
 

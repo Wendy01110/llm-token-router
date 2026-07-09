@@ -137,6 +137,7 @@ def test_expand_eval_targets_expands_each_enabled_model_key():
             endpoint="api",
             key_id="ark-1",
             model_name="model-a",
+            upstream_model_name="model-a",
             level=1,
             daily_quota=1000,
             daily_request_quota=None,
@@ -146,6 +147,7 @@ def test_expand_eval_targets_expands_each_enabled_model_key():
             endpoint="api",
             key_id="ark-2",
             model_name="model-a",
+            upstream_model_name="model-a",
             level=1,
             daily_quota=2000,
             daily_request_quota=None,
@@ -298,6 +300,34 @@ def test_run_model_eval_counts_successful_usage_in_model_instances(tmp_path):
     assert usage.request_count == 1
     assert provider.calls[0][2]["model"] == "model-a"
     assert provider.calls[0][1].id == "ark-1"
+
+
+def test_run_model_eval_sends_upstream_model_for_client_model_alias(tmp_path):
+    db_path = tmp_path / "usage.sqlite3"
+    init_db(db_path)
+    usage_manager = UsageManager(db_path)
+    config = multi_key_config()
+    config.model_instances[0].name = "payg/model-a"
+    config.model_instances[0].upstream_model = "model-a"
+    target = expand_eval_targets(config)[0]
+    provider = FakeProvider()
+
+    result = asyncio.run(
+        run_model_eval(
+            config=config,
+            usage_manager=usage_manager,
+            provider=provider,
+            target=target,
+            quota_date="2026-06-04",
+            hotspot_context="热点资料",
+            max_tokens=300,
+        )
+    )
+
+    usage = usage_manager.get_usage("ark", "ark-1", "payg/model-a", "2026-06-04")
+    assert result.status == "ok"
+    assert usage.total_tokens == 18
+    assert provider.calls[0][2]["model"] == "model-a"
 
 
 def test_run_model_eval_records_request_when_usage_missing(tmp_path):

@@ -42,6 +42,19 @@ providers:
             value: ${ARK_API_KEY}
           - id: volcengine_ark_2
             value: ${ARK_API_KEY_2}
+          - id: volcengine_ark_payg
+            value: ${ARK_PAYG_API_KEY}
+
+  deepseek:
+    type: openai_compatible
+    stream_usage_mode: openai_include_usage
+    endpoints:
+      api:
+        base_url: https://api.deepseek.com
+        auth_header: authorization_bearer
+        keys:
+          - id: deepseek_payg
+            value: ${DS_PAYG_API_KEY}
 
   agnes:
     type: openai_compatible
@@ -80,31 +93,42 @@ model_instances:
   #       priority: 10
   #   groups: [coding, general]
 
-  - name: doubao-seed-2-1-turbo-260628
+  - name: payg/deepseek-v4-pro
+    upstream_model: deepseek-v4-pro
+    provider: deepseek
+    endpoint: api
+    level: 1
+    max_concurrency: 8
+    requires_explicit_model: true
+    keys:
+      - key_id: deepseek_payg
+        daily_quota: 10000000
+        priority: 10
+    groups: [reasoning, coding, general]
+
+  - name: payg/doubao-seed-2-1-turbo-260628
+    upstream_model: doubao-seed-2-1-turbo-260628
     provider: volcengine_ark
     endpoint: api
     level: 1
-    max_concurrency: 4
+    max_concurrency: 8
+    requires_explicit_model: true
     keys:
-      - key_id: volcengine_ark_1
-        daily_quota: 1800000
-        priority: 10
-      - key_id: volcengine_ark_2
-        daily_quota: 1800000
+      - key_id: volcengine_ark_payg
+        daily_quota: 10000000
         priority: 10
     groups: [reasoning, general]
 
-  - name: doubao-seed-2-1-pro-260628
+  - name: payg/doubao-seed-2-1-pro-260628
+    upstream_model: doubao-seed-2-1-pro-260628
     provider: volcengine_ark
     endpoint: api
     level: 1
-    max_concurrency: 4
+    max_concurrency: 8
+    requires_explicit_model: true
     keys:
-      - key_id: volcengine_ark_1
-        daily_quota: 1800000
-        priority: 10
-      - key_id: volcengine_ark_2
-        daily_quota: 1800000
+      - key_id: volcengine_ark_payg
+        daily_quota: 10000000
         priority: 10
     groups: [reasoning, general]
 

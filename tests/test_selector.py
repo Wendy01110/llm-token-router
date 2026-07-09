@@ -244,6 +244,56 @@ def test_selector_skips_excluded_runtime_route():
     assert selected.key_id == "k2"
 
 
+def test_selector_requires_explicit_model_when_configured():
+    config = make_config()
+    config.model_instances.insert(
+        0,
+        ModelInstanceConfig(
+            name="paid-model",
+            provider="test",
+            level=1,
+            priority=1,
+            keys=[{"key_id": "k1", "daily_quota": 100}],
+            groups=["general"],
+            requires_explicit_model=True,
+        ),
+    )
+    selector = RouteSelector(config, FakeUsageManager({}))
+
+    auto_selected = selector.select(
+        model="auto", router={"level": 1}, quota_date="2026-05-27"
+    )
+    explicit_selected = selector.select(
+        model="paid-model", router={"level": 1}, quota_date="2026-05-27"
+    )
+
+    assert auto_selected.model_name == "model-a"
+    assert explicit_selected.model_name == "paid-model"
+
+
+def test_selector_keeps_client_model_name_separate_from_upstream_model():
+    config = make_config()
+    config.model_instances[0] = ModelInstanceConfig(
+        name="payg/model-a",
+        upstream_model="model-a",
+        provider="test",
+        level=1,
+        priority=10,
+        keys=[{"key_id": "k1", "daily_quota": 100}],
+        requires_explicit_model=True,
+    )
+    selector = RouteSelector(config, FakeUsageManager({}))
+
+    selected = selector.select(
+        model="payg/model-a",
+        router={"level": 1, "strict_model": True, "fallback": False},
+        quota_date="2026-05-27",
+    )
+
+    assert selected.model_name == "payg/model-a"
+    assert selected.upstream_model_name == "model-a"
+
+
 def test_selector_skips_unsupported_response_format_type():
     config = make_config()
     config.model_instances = [

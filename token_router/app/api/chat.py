@@ -196,7 +196,7 @@ def _prepare_chat_attempt(
     endpoint_config = provider_config.get_endpoint(selected.endpoint)
     api_key = _find_api_key(endpoint_config, selected.key_id)
     outgoing_payload = request_payload.model_dump(exclude_none=True)
-    outgoing_payload["model"] = selected.model_name
+    outgoing_payload["model"] = selected.upstream_model_name
     outgoing_payload.pop("router", None)
     _adapt_openai_standard_params(
         outgoing_payload,
@@ -436,7 +436,7 @@ def _adapt_openai_standard_params(
         outgoing_payload["thinking"] = {
             "type": "disabled" if reasoning_effort == "none" else "enabled"
         }
-        if not selected.model_name.startswith("doubao-seed-2-0"):
+        if not selected.upstream_model_name.startswith("doubao-seed-2-0"):
             outgoing_payload.pop("reasoning_effort", None)
 
 
@@ -462,7 +462,7 @@ def _apply_router_thinking_options(
             outgoing_payload["reasoning"] = {"effort": "none"}
         return
 
-    if selected.provider in {"volcengine_ark", "xiaomi_mimo"}:
+    if selected.provider in {"volcengine_ark", "xiaomi_mimo", "deepseek"}:
         outgoing_payload["thinking"] = {
             "type": "enabled" if thinking_enabled else "disabled"
         }
@@ -470,8 +470,13 @@ def _apply_router_thinking_options(
         if (
             thinking_enabled
             and thinking_effort
-            and selected.provider == "volcengine_ark"
-            and selected.model_name.startswith("doubao-seed-2-0")
+            and (
+                selected.provider == "deepseek"
+                or (
+                    selected.provider == "volcengine_ark"
+                    and selected.upstream_model_name.startswith("doubao-seed-2-0")
+                )
+            )
         ):
             outgoing_payload["reasoning_effort"] = thinking_effort
 

@@ -27,6 +27,7 @@ def _selected_route(
         endpoint="api",
         key_id=key_id,
         model_name=model_name,
+        upstream_model_name=model_name,
         level=1,
         daily_quota=100,
         daily_request_quota=None,

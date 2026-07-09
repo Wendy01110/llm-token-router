@@ -114,7 +114,9 @@ def test_config_example_uses_current_local_providers(monkeypatch):
         "ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
     )
     monkeypatch.setenv("ARK_API_KEY", "ark-test")
+    monkeypatch.setenv("ARK_PAYG_API_KEY", "ark-payg-test")
     monkeypatch.setenv("ARK_MODEL", "doubao-seed-2-0-lite-260215")
+    monkeypatch.setenv("DS_PAYG_API_KEY", "ds-payg-test")
     monkeypatch.setenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
     monkeypatch.setenv("AGNES_API_KEY", "agnes-test")
     monkeypatch.setenv("AGNES_MODEL", "agnes-2.0-flash")
@@ -129,6 +131,7 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     assert set(config.providers) == {
         "xiaomi_mimo",
         "volcengine_ark",
+        "deepseek",
         "agnes",
         "openrouter",
     }
@@ -136,11 +139,22 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     assert config.model_instances[0].endpoint == "token_plan"
     assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").auth_header == "api_key"
     assert config.providers["volcengine_ark"].get_endpoint("api").auth_header == "authorization_bearer"
+    assert [
+        key.id
+        for key in config.providers["volcengine_ark"].get_endpoint("api").keys
+    ] == ["volcengine_ark_1", "volcengine_ark_payg"]
+    assert config.providers["deepseek"].get_endpoint("api").base_url == "https://api.deepseek.com"
+    assert config.providers["deepseek"].get_endpoint("api").auth_header == "authorization_bearer"
+    assert [
+        key.id
+        for key in config.providers["deepseek"].get_endpoint("api").keys
+    ] == ["deepseek_payg"]
     assert config.providers["agnes"].get_endpoint("api").base_url == "https://apihub.agnes-ai.com/v1"
     assert config.providers["agnes"].get_endpoint("api").auth_header == "authorization_bearer"
     assert config.providers["openrouter"].get_endpoint("api").auth_header == "authorization_bearer"
     assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").stream_usage_mode == "no_option_usage_chunk"
     assert config.providers["volcengine_ark"].get_endpoint("api").stream_usage_mode == "ark_include_usage"
+    assert config.providers["deepseek"].get_endpoint("api").stream_usage_mode == "openai_include_usage"
     assert config.providers["agnes"].get_endpoint("api").stream_usage_mode == "openai_include_usage"
     assert config.providers["openrouter"].get_endpoint("api").stream_usage_mode == "no_option_usage_chunk"
     assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").responses_api == "unsupported"
@@ -156,6 +170,7 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     assert max_concurrency_by_provider == {
         "xiaomi_mimo": 2,
         "volcengine_ark": 4,
+        "deepseek": 4,
         "agnes": 2,
         "openrouter": 2,
     }
@@ -175,6 +190,32 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     assert [key.key_id for key in openrouter_keys] == ["openrouter_1", "openrouter_2"]
     assert [key.priority for key in openrouter_keys] == [100, 110]
     assert [key.daily_request_quota for key in openrouter_keys] == [50, 50]
+    ark_payg_instances = [
+        instance
+        for instance in config.model_instances
+        if instance.provider == "volcengine_ark"
+        and instance.iter_key_configs()[0].key_id == "volcengine_ark_payg"
+    ]
+    assert [instance.name for instance in ark_payg_instances] == [
+        "payg/doubao-seed-2-1-pro-260628",
+        "payg/doubao-seed-2-1-turbo-260628",
+    ]
+    assert [instance.upstream_model_name for instance in ark_payg_instances] == [
+        "doubao-seed-2-1-pro-260628",
+        "doubao-seed-2-1-turbo-260628",
+    ]
+    assert all(instance.requires_explicit_model for instance in ark_payg_instances)
+    deepseek_payg_instances = [
+        instance
+        for instance in config.model_instances
+        if instance.provider == "deepseek"
+        and instance.iter_key_configs()[0].key_id == "deepseek_payg"
+    ]
+    assert [instance.name for instance in deepseek_payg_instances] == [
+        "payg/deepseek-v4-pro"
+    ]
+    assert deepseek_payg_instances[0].upstream_model_name == "deepseek-v4-pro"
+    assert deepseek_payg_instances[0].requires_explicit_model is True
 
 
 def test_provider_can_separate_api_and_token_plan_endpoints(tmp_path, monkeypatch):

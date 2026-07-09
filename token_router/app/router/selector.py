@@ -102,6 +102,8 @@ class RouteSelector:
         for instance in self.config.model_instances:
             if instance.level not in levels:
                 continue
+            if requested_model is None and instance.requires_explicit_model:
+                continue
             if provider and instance.provider != provider:
                 continue
             if requested_model and instance.name != requested_model:
@@ -213,6 +215,7 @@ class RouteSelector:
             endpoint=instance.endpoint,
             key_id=key_config.key_id,
             model_name=instance.name,
+            upstream_model_name=instance.upstream_model_name,
             level=instance.level,
             daily_quota=key_config.daily_quota,
             daily_request_quota=key_config.daily_request_quota,
