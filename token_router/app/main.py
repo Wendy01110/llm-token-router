@@ -4,7 +4,7 @@ import asyncio
 import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -31,6 +31,8 @@ def create_app(
             config_path = Path(os.environ.get("TOKEN_ROUTER_CONFIG", "config.yaml"))
             if config_path.exists():
                 app.state.config = load_config(config_path)
+        if app.state.config is not None:
+            _bootstrap_calendar_usage(app.state.config, app.state.usage_manager)
         daily_eval_task = None
         if app.state.config is not None:
             daily_eval_task = start_daily_eval_scheduler(
@@ -52,12 +54,17 @@ def create_app(
         db_path = Path(os.environ.get("TOKEN_ROUTER_DB", "token_router.sqlite3"))
         init_db(db_path)
         usage_manager = UsageManager(db_path)
+    else:
+        init_db(usage_manager.db_path)
 
     app.state.config = config
     app.state.usage_manager = usage_manager
     app.state.provider = provider or OpenAICompatibleProvider()
     app.state.runtime_state = RuntimeRouteState()
-    app.state.now_fn = now_fn or datetime.now
+    app.state.now_fn = now_fn or (lambda: datetime.now(timezone.utc))
+
+    if config is not None:
+        _bootstrap_calendar_usage(config, usage_manager)
 
     app.include_router(health.router)
     app.include_router(reports.router)
@@ -65,6 +72,19 @@ def create_app(
     app.include_router(chat.router)
     app.include_router(responses.router)
     return app
+
+
+def _bootstrap_calendar_usage(
+    config: AppConfig,
+    usage_manager: UsageManager,
+) -> None:
+    routes = {
+        (instance.provider, key_config.key_id, instance.name)
+        for instance in config.model_instances
+        for key_config in instance.iter_key_configs()
+        if key_config.quota_refresh_mode == "delayed_calendar_day"
+    }
+    usage_manager.bootstrap_calendar_usage(config.refresh.timezone, routes)
 
 
 app = create_app()

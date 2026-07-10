@@ -89,7 +89,7 @@ model_instances:
   #   max_concurrency: 2
   #   keys:
   #     - key_id: mimo_token_plan
-  #       daily_quota: 200000000
+  #       daily_quota: 1800000
   #       priority: 10
   #   groups: [coding, general]
 
@@ -132,7 +132,7 @@ model_instances:
         priority: 10
     groups: [reasoning, general]
 
-  - name: doubao-seed-2-0-pro-260215
+  - name: doubao-seed-2-1-pro-260628
     provider: volcengine_ark
     endpoint: api
     level: 1
@@ -140,23 +140,75 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
+        priority: 10
+      - key_id: volcengine_ark_2
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
+        priority: 10
+    groups: [reasoning, general]
+
+  - name: doubao-seed-2-1-turbo-260628
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    max_concurrency: 4
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 20
       - key_id: volcengine_ark_2
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
+        priority: 20
+    groups: [reasoning, general]
+
+  - name: glm-5-2-260617
+    provider: volcengine_ark
+    endpoint: api
+    level: 1
+    max_concurrency: 4
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
+        priority: 10
+      - key_id: volcengine_ark_2
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
+        priority: 10
+    groups: [reasoning, general]
+
+  - name: doubao-seed-2-0-pro-260215
+    provider: volcengine_ark
+    endpoint: api
+    level: 2
+    max_concurrency: 4
+    keys:
+      - key_id: volcengine_ark_1
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
+        priority: 20
+      - key_id: volcengine_ark_2
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 20
     groups: [reasoning, general]
 
   - name: doubao-seed-2-0-code-preview-260215
     provider: volcengine_ark
     endpoint: api
-    level: 1
+    level: 2
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 1800000
+        daily_quota: 1000000
+        quota_refresh_mode: delayed_calendar_day
         priority: 20
       - key_id: volcengine_ark_2
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 20
     groups: [reasoning, coding, general]
     unsupported_response_format_types: [json_object]
@@ -164,28 +216,32 @@ model_instances:
   - name: glm-4-7-251222
     provider: volcengine_ark
     endpoint: api
-    level: 1
+    level: 3
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 30
       - key_id: volcengine_ark_2
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 30
     groups: [general, fallback]
 
   - name: deepseek-v3-2-251201
     provider: volcengine_ark
     endpoint: api
-    level: 1
+    level: 3
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 40
       - key_id: volcengine_ark_2
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 40
     groups: [general, coding, fallback]
 
@@ -197,9 +253,11 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 50
       - key_id: volcengine_ark_2
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 50
     groups: [reasoning, general, fallback]
 
@@ -211,6 +269,7 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 60
     groups: [reasoning, general, fallback]
 
@@ -222,6 +281,7 @@ model_instances:
     keys:
       - key_id: volcengine_ark_1
         daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 45
     groups: [reasoning, general, fallback]
 

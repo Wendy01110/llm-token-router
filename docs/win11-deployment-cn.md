@@ -67,7 +67,10 @@ notepad .\.env
 - `MIMO_TOKEN_PLAN_MODEL`
 - `ARK_BASE_URL`
 - `ARK_API_KEY`
+- `ARK_API_KEY_2`
+- `ARK_PAYG_API_KEY`
 - `ARK_MODEL`
+- `DS_PAYG_API_KEY`
 - `AGNES_BASE_URL`
 - `AGNES_API_KEY`
 - `AGNES_MODEL`
@@ -76,6 +79,8 @@ notepad .\.env
 - `OPENROUTER_API_KEY_2`
 - `OPENROUTER_FREE_MODEL`
 - `TAVILY_API_KEY`
+
+`ARK_MODEL` 只用于精简的 `config.example.yaml`。仓库当前完整 `config.yaml` 直接写入套餐模型 ID，并使用两个 Ark 套餐 key；如果部署的是完整配置，必须同时填写 `ARK_API_KEY_2`。PayG route 分别需要 `ARK_PAYG_API_KEY` 和 `DS_PAYG_API_KEY`。
 
 `TAVILY_API_KEY` 只影响每日模型评测；如果暂时不用每日评测，可以先保留占位值，但相关报告不会正常生成。
 

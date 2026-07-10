@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -289,6 +292,63 @@ def test_chat_endpoint_counts_successful_request_without_usage(
     usage = usage_manager.get_usage("test", "k1", "model-a", "2026-05-27")
     assert usage.total_tokens == 0
     assert usage.request_count == 1
+
+
+def test_chat_endpoint_records_delayed_calendar_usage_on_natural_day(
+    app_config, usage_manager
+):
+    app_config.model_instances[0] = ModelInstanceConfig(
+        name="model-a",
+        provider="test",
+        endpoint="api",
+        level=1,
+        priority=10,
+        keys=[
+            {
+                "key_id": "k1",
+                "daily_quota": 200,
+                "quota_refresh_mode": "delayed_calendar_day",
+            }
+        ],
+        groups=["general"],
+    )
+    before_release = datetime(
+        2026, 5, 27, 10, 0, tzinfo=ZoneInfo("Asia/Shanghai")
+    )
+    app = create_app(
+        app_config,
+        usage_manager,
+        provider=FakeProvider(),
+        now_fn=lambda: before_release,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hello"}],
+            "router": {"level": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    today = usage_manager.get_usage(
+        "test",
+        "k1",
+        "model-a",
+        "2026-05-27",
+        "delayed_calendar_day",
+    )
+    yesterday = usage_manager.get_usage(
+        "test",
+        "k1",
+        "model-a",
+        "2026-05-26",
+        "delayed_calendar_day",
+    )
+    assert today.total_tokens == 5
+    assert yesterday.total_tokens == 0
 
 
 def test_chat_endpoint_sends_upstream_model_for_client_model_alias(

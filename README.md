@@ -16,7 +16,7 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-Edit `.env` and set your current Xiaomi MiMo Token/Coding Plan key, Volcengine Ark key, OpenRouter key, and Tavily key:
+Edit `.env` and set the provider keys referenced by your config:
 
 ```bash
 MIMO_TOKEN_PLAN_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
@@ -25,7 +25,11 @@ MIMO_TOKEN_PLAN_MODEL=mimo-v2.5-pro
 
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARK_API_KEY=...
-ARK_MODEL=doubao-seed-2-0-lite-260215
+ARK_API_KEY_2=...
+ARK_PAYG_API_KEY=...
+ARK_MODEL=doubao-seed-2-1-pro-260628
+
+DS_PAYG_API_KEY=...
 
 AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
 AGNES_API_KEY=...
@@ -39,12 +43,15 @@ OPENROUTER_FREE_MODEL=openrouter/free
 TAVILY_API_KEY=tvly-...
 ```
 
+The repository's current `config.yaml` declares Ark plan model IDs directly and uses both `ARK_API_KEY` and `ARK_API_KEY_2`. The smaller `config.example.yaml` uses one plan key and the `ARK_MODEL` placeholder. `ARK_PAYG_API_KEY` and `DS_PAYG_API_KEY` are used only by explicit PayG routes.
+
 `load_config()` reads `.env` from the same directory as `config.yaml` before resolving `${VAR_NAME}` references. Existing shell environment variables take precedence over values in `.env`.
 
 `config.example.yaml` enables these providers by default:
 
 - `xiaomi_mimo`
 - `volcengine_ark`
+- `deepseek`
 - `agnes`
 - `openrouter`
 
@@ -91,19 +98,19 @@ model_instances:
     level: 5
     keys:
       - key_id: openrouter_1
-        daily_quota: 5000000
-        daily_request_quota: 50
+        daily_quota: 4000000
+        daily_request_quota: 40
         priority: 100
       - key_id: openrouter_2
-        daily_quota: 5000000
-        daily_request_quota: 50
+        daily_quota: 4500000
+        daily_request_quota: 45
         priority: 110
     groups: [general, coding, fallback, free]
 ```
 
 OpenRouter requires `Authorization: Bearer <key>`, which maps to `auth_header: authorization_bearer`. The default config defines `openrouter_1` from `OPENROUTER_API_KEY` and `openrouter_2` from `OPENROUTER_API_KEY_2`. Optional OpenRouter attribution headers are not required for routing and are not sent by the current provider adapter.
 
-`daily_request_quota: 50` matches OpenRouter's daily free request limit per key. `priority` is set on each key entry, so the router uses `openrouter_1` first and switches to `openrouter_2` after the first key reaches its request quota.
+The current local limits are `openrouter_1: 4M / 40 requests` and `openrouter_2: 4.5M / 45 requests`. `priority` is set on each key entry, so the router uses `openrouter_1` first and switches to `openrouter_2` after the first key reaches its request quota.
 
 To force a local request through OpenRouter:
 
@@ -170,7 +177,7 @@ model_instances:
     level: 1
     keys:
       - key_id: mimo_token_plan_2
-        daily_quota: 50000000
+        daily_quota: 1800000
         priority: 10
     groups: [coding, general]
 ```
@@ -199,7 +206,8 @@ model_instances:
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 10000000
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 30
     groups: [general]
     unsupported_response_format_types: []
@@ -207,17 +215,24 @@ model_instances:
 
 Fields:
 
-- `name`: upstream model name sent to the provider.
+- `name`: client-facing model name accepted by the local router.
+- `upstream_model`: optional upstream model ID; defaults to `name`.
 - `provider`: supplier name under `providers`.
 - `endpoint`: URL/key pool under that provider.
-- `level`: smaller is higher priority; `1` is strongest.
+- `level`: smaller has higher routing priority; `1` is first.
 - `max_concurrency`: maximum in-flight requests per model/key route. Multiple keys for the same model each get this limit independently; when one route is saturated, the router skips it and selects another eligible route.
 - `keys[].key_id`: key under that endpoint.
 - `keys[].daily_quota`: daily token budget for this model/key instance.
 - `keys[].daily_request_quota`: optional daily request budget for that key.
+- `keys[].quota_refresh_mode`: optional quota refresh behavior. `shifted_day` uses the global reset-hour bucket. `delayed_calendar_day` records natural calendar days, counts yesterday plus today before the reset hour, and counts only today after the reset hour.
 - `keys[].priority`: lower wins within the same level/stage.
 - `groups`: optional tags such as `coding`, `general`, `reasoning`, `fallback`.
+- `requires_explicit_model`: when true, the route is excluded from `model: "auto"` and must be requested by name.
 - `unsupported_response_format_types`: optional response format types to skip for this model instance, for example `[json_object]`.
+
+Ark plan quotas are independent per `model + key`. In the current `config.yaml`, most plan routes use 1.8M tokens; `doubao-seed-2-0-code-preview-260215` uses 1M on `volcengine_ark_1` and 1.8M on `volcengine_ark_2`. All plan routes use `delayed_calendar_day`. The explicit DeepSeek and Ark PayG routes use a 10M local limit and the default `shifted_day` mode.
+
+The first startup after enabling `delayed_calendar_day` builds separate calendar-day usage buckets from local `request_logs`, using request latency to approximate each request's start time. New requests are then recorded directly into those buckets, so existing reset-hour aggregates are never reinterpreted as calendar-day data.
 
 ### Disable Or Remove A Model
 

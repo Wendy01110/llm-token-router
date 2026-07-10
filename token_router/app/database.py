@@ -50,3 +50,15 @@ def init_db(db_path: str | Path) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS calendar_usage_migrations (
+                provider_name TEXT NOT NULL,
+                key_id TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                timezone_name TEXT NOT NULL,
+                applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (provider_name, key_id, model_name, timezone_name)
+            )
+            """
+        )

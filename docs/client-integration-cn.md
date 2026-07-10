@@ -481,6 +481,8 @@ Ark 模型差异：
 | `payg/doubao-seed-2-1-pro-260628` | `doubao-seed-2-1-pro-260628` | `volcengine_ark` | `ARK_PAYG_API_KEY` |
 | `payg/doubao-seed-2-1-turbo-260628` | `doubao-seed-2-1-turbo-260628` | `volcengine_ark` | `ARK_PAYG_API_KEY` |
 
+无前缀的 `doubao-seed-2-1-pro-260628` 和 `doubao-seed-2-1-turbo-260628` 是火山套餐 route，可参与 `model: "auto"`，每个 `model + key` 的本地额度为 1.8M，并使用 `delayed_calendar_day`。对应的 `payg/...` 名称映射到相同上游模型 ID，但使用独立的 `volcengine_ark_payg` key、10M 本地上限和默认 `shifted_day` 模式。
+
 这些模型都设置了 `requires_explicit_model: true`，不会被 `model: "auto"` 自动选中。调用方必须显式传对应的 `payg/...` 模型名，并建议同时传：
 
 - `router.provider`：和目标模型的 provider 一致。

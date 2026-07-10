@@ -25,8 +25,9 @@ MIMO_TOKEN_PLAN_MODEL=mimo-v2.5-pro
 
 ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
 ARK_API_KEY=...
+ARK_API_KEY_2=...
 ARK_PAYG_API_KEY=...
-ARK_MODEL=doubao-seed-2-0-lite-260215
+ARK_MODEL=doubao-seed-2-1-pro-260628
 
 DS_PAYG_API_KEY=...
 
@@ -41,6 +42,8 @@ OPENROUTER_FREE_MODEL=openrouter/free
 
 TAVILY_API_KEY=tvly-...
 ```
+
+当前仓库的 `config.yaml` 直接写入火山套餐模型 ID，并使用 `ARK_API_KEY` 和 `ARK_API_KEY_2` 两个套餐 key；精简的 `config.example.yaml` 只使用一个套餐 key，并通过 `ARK_MODEL` 指定示例模型。`ARK_PAYG_API_KEY` 和 `DS_PAYG_API_KEY` 分别用于显式调用的火山与 DeepSeek 按量模型。
 
 `load_config()` 会先读取 `config.yaml` 同目录下的 `.env`，再解析配置里的 `${VAR_NAME}`。如果同名变量已经存在于 shell 环境变量中，shell 里的值优先。
 
@@ -102,19 +105,19 @@ model_instances:
     level: 5
     keys:
       - key_id: openrouter_1
-        daily_quota: 5000000
-        daily_request_quota: 50
+        daily_quota: 4000000
+        daily_request_quota: 40
         priority: 100
       - key_id: openrouter_2
-        daily_quota: 5000000
-        daily_request_quota: 50
+        daily_quota: 4500000
+        daily_request_quota: 45
         priority: 110
     groups: [general, coding, fallback, free]
 ```
 
 OpenRouter 使用 `Authorization: Bearer <key>`，对应配置里的 `auth_header: authorization_bearer`。默认配置用 `OPENROUTER_API_KEY` 生成 `openrouter_1`，用 `OPENROUTER_API_KEY_2` 生成 `openrouter_2`。OpenRouter 的可选 attribution headers 不是路由必需项，当前 provider adapter 不发送这些可选 header。
 
-`daily_request_quota: 50` 对应 OpenRouter 免费模型每个 key 每天 50 次请求限制。`priority` 放在 key 条目上，所以 router 会先用 `openrouter_1`，第一个 key 达到请求额度后再切到 `openrouter_2`。
+当前本地上限分别为 `openrouter_1: 4M / 40 次` 和 `openrouter_2: 4.5M / 45 次`。`priority` 放在 key 条目上，所以 router 会先用 `openrouter_1`，第一个 key 达到请求额度后再切到 `openrouter_2`。
 
 如果想强制本地请求走 OpenRouter：
 
@@ -429,7 +432,7 @@ model_instances:
     level: 1
     keys:
       - key_id: mimo_token_plan_2
-        daily_quota: 50000000
+        daily_quota: 1800000
         priority: 10
     groups: [coding, general]
 ```
@@ -458,7 +461,8 @@ model_instances:
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 10000000
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
         priority: 30
     groups: [general]
     unsupported_response_format_types: []
@@ -475,10 +479,30 @@ model_instances:
 - `keys[].key_id`：该 endpoint 下面的 key。
 - `keys[].daily_quota`：这个模型/key 实例每天可用 token 额度。
 - `keys[].daily_request_quota`：可选的每日请求次数额度。
+- `keys[].quota_refresh_mode`：可选的额度刷新方式。默认 `shifted_day` 按全局 `daily_reset_hour` 切日；`delayed_calendar_day` 按自然日记账，并在每天刷新时刻前同时扣除昨日和今日用量，刷新后只扣除今日用量。
 - `keys[].priority`：同等级、同阶段内的排序，数字越小越优先。
 - `groups`：可选标签，例如 `coding`、`general`、`reasoning`、`fallback`。
 - `requires_explicit_model`：设为 `true` 时，该模型不会进入 `model: "auto"` 自动选路，只能通过显式 `model` 调用；适合按量收费模型。
 - `unsupported_response_format_types`：可选的响应格式过滤列表，例如 `[json_object]`；请求该格式时会跳过这个模型实例。
+
+火山套餐额度按 `model + key` 独立计算，当前配置如下。表内数字为 `daily_quota / priority`，所有套餐 route 都使用 `quota_refresh_mode: delayed_calendar_day`：
+
+| 模型 | Level | `volcengine_ark_1` | `volcengine_ark_2` |
+| --- | ---: | ---: | ---: |
+| `doubao-seed-2-1-pro-260628` | 1 | 1.8M / 10 | 1.8M / 10 |
+| `glm-5-2-260617` | 1 | 1.8M / 10 | 1.8M / 10 |
+| `doubao-seed-2-1-turbo-260628` | 1 | 1.8M / 20 | 1.8M / 20 |
+| `doubao-seed-2-0-pro-260215` | 2 | 1.8M / 20 | 1.8M / 20 |
+| `doubao-seed-2-0-code-preview-260215` | 2 | 1M / 20 | 1.8M / 20 |
+| `doubao-seed-2-0-lite-260428` | 2 | 1.8M / 50 | 1.8M / 50 |
+| `glm-4-7-251222` | 3 | 1.8M / 30 | 1.8M / 30 |
+| `deepseek-v3-2-251201` | 3 | 1.8M / 40 | 1.8M / 40 |
+| `doubao-seed-1-8-251228` | 3 | 1.8M / 45 | 未配置 |
+| `doubao-seed-2-0-mini-260428` | 3 | 1.8M / 60 | 未配置 |
+
+例如某个 1.8M route 昨日使用 1.2M、今日 0 点到 11 点使用 0.2M，则 10:59 的有效已用量为 1.4M；11:00 释放昨日 1.2M 后，今日 0.2M 仍然保留。
+
+首次启用 `delayed_calendar_day` 时，服务会根据本地 `request_logs` 和请求延迟反推请求开始时刻，一次性生成独立的自然日用量桶，避免把旧的 11 点切日汇总误当成自然日数据。之后的新请求会直接记入自然日桶。
 
 按量收费模型建议单独使用 key，并要求显式模型调用：
 
@@ -489,11 +513,11 @@ model_instances:
     provider: deepseek
     endpoint: api
     level: 1
-    max_concurrency: 4
+    max_concurrency: 8
     requires_explicit_model: true
     keys:
       - key_id: deepseek_payg
-        daily_quota: 1800000
+        daily_quota: 10000000
         priority: 10
     groups: [reasoning, coding, general]
 
@@ -502,11 +526,11 @@ model_instances:
     provider: volcengine_ark
     endpoint: api
     level: 1
-    max_concurrency: 4
+    max_concurrency: 8
     requires_explicit_model: true
     keys:
       - key_id: volcengine_ark_payg
-        daily_quota: 1800000
+        daily_quota: 10000000
         priority: 10
     groups: [reasoning, general]
 
@@ -515,14 +539,16 @@ model_instances:
     provider: volcengine_ark
     endpoint: api
     level: 1
-    max_concurrency: 4
+    max_concurrency: 8
     requires_explicit_model: true
     keys:
       - key_id: volcengine_ark_payg
-        daily_quota: 1800000
+        daily_quota: 10000000
         priority: 10
     groups: [reasoning, general]
 ```
+
+这三个 PAYG route 的 `daily_quota: 10000000` 是 router 的本地用量上限，不是供应商套餐额度。它们没有配置 `quota_refresh_mode`，因此使用默认 `shifted_day`；同时都设置了 `requires_explicit_model: true`，不会进入 `model: "auto"`。
 
 ### 禁用或删除模型
 

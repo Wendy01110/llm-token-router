@@ -87,20 +87,21 @@ model_instances:
     max_concurrency: 2
     keys:
       - key_id: mimo_token_plan
-        daily_quota: 50000000
+        daily_quota: 1800000
         priority: 10
     groups: [coding, general]
 
   - name: ${ARK_MODEL}
     provider: volcengine_ark
     endpoint: api
-    level: 2
+    level: 1
     max_concurrency: 4
     keys:
       - key_id: volcengine_ark_1
-        daily_quota: 50000000
-        priority: 20
-    groups: [general, coding, fallback]
+        daily_quota: 1800000
+        quota_refresh_mode: delayed_calendar_day
+        priority: 10
+    groups: [reasoning, general]
     unsupported_response_format_types: []
 
   - name: payg/deepseek-v4-pro
@@ -108,11 +109,11 @@ model_instances:
     provider: deepseek
     endpoint: api
     level: 1
-    max_concurrency: 4
+    max_concurrency: 8
     requires_explicit_model: true
     keys:
       - key_id: deepseek_payg
-        daily_quota: 1800000
+        daily_quota: 10000000
         priority: 10
     groups: [reasoning, coding, general]
 
@@ -121,11 +122,11 @@ model_instances:
     provider: volcengine_ark
     endpoint: api
     level: 1
-    max_concurrency: 4
+    max_concurrency: 8
     requires_explicit_model: true
     keys:
       - key_id: volcengine_ark_payg
-        daily_quota: 1800000
+        daily_quota: 10000000
         priority: 10
     groups: [reasoning, general]
 
@@ -134,11 +135,11 @@ model_instances:
     provider: volcengine_ark
     endpoint: api
     level: 1
-    max_concurrency: 4
+    max_concurrency: 8
     requires_explicit_model: true
     keys:
       - key_id: volcengine_ark_payg
-        daily_quota: 1800000
+        daily_quota: 10000000
         priority: 10
     groups: [reasoning, general]
 
@@ -160,11 +161,11 @@ model_instances:
     max_concurrency: 2
     keys:
       - key_id: openrouter_1
-        daily_quota: 5000000
-        daily_request_quota: 50
+        daily_quota: 4000000
+        daily_request_quota: 40
         priority: 100
       - key_id: openrouter_2
-        daily_quota: 5000000
-        daily_request_quota: 50
+        daily_quota: 4500000
+        daily_request_quota: 45
         priority: 110
     groups: [general, coding, fallback, free]

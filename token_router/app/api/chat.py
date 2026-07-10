@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import datetime
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
@@ -14,7 +15,6 @@ from token_router.app.providers.streaming import (
     SSEUsageTracker,
     apply_stream_usage_policy,
 )
-from token_router.app.router.quota import quota_date_for
 from token_router.app.router.runtime import (
     RuntimeRouteState,
     is_retryable_runtime_error,
@@ -52,11 +52,7 @@ async def chat_completions(
     usage_manager: UsageManager = request.app.state.usage_manager
     runtime_state: RuntimeRouteState = request.app.state.runtime_state
     selector = RouteSelector(config, usage_manager)
-    quota_date = quota_date_for(
-        request.app.state.now_fn(),
-        config.refresh.timezone,
-        config.refresh.daily_reset_hour,
-    )
+    quota_now = request.app.state.now_fn()
 
     request_id = str(uuid4())
     request_started_at = perf_counter()
@@ -69,7 +65,7 @@ async def chat_completions(
             usage_manager=usage_manager,
             runtime_state=runtime_state,
             selector=selector,
-            quota_date=quota_date,
+            quota_date=quota_now,
             request_id=request_id,
             excluded_routes=excluded_routes,
         )
@@ -81,7 +77,7 @@ async def chat_completions(
                 runtime_state=runtime_state,
                 request_id=request_id,
                 selected=selected,
-                quota_date=quota_date,
+                quota_date=selected.quota_record_date,
                 started_at=request_started_at,
             ),
             media_type="text/event-stream",
@@ -96,7 +92,7 @@ async def chat_completions(
                 config=config,
                 selector=selector,
                 request_payload=request_payload,
-                quota_date=quota_date,
+                quota_date=quota_now,
                 excluded_routes=excluded_routes,
                 use_fallback_models=use_fallback_models,
             )
@@ -154,9 +150,10 @@ async def chat_completions(
             provider=selected.provider,
             key_id=selected.key_id,
             model_name=selected.model_name,
-            quota_date=quota_date,
+            quota_date=selected.quota_record_date,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            quota_refresh_mode=selected.quota_refresh_mode,
         )
         _log_chat_request(
             usage_manager=usage_manager,
@@ -180,7 +177,7 @@ def _prepare_chat_attempt(
     config: AppConfig,
     selector: RouteSelector,
     request_payload: ChatCompletionRequest,
-    quota_date: str,
+    quota_date: str | datetime,
     excluded_routes: set[tuple[str, str, str, str]],
     use_fallback_models: bool = False,
 ) -> tuple[SelectedRoute, EndpointConfig, ApiKeyConfig, dict[str, Any]]:
@@ -215,7 +212,7 @@ async def _open_chat_stream_with_fallback(
     usage_manager: UsageManager,
     runtime_state: RuntimeRouteState,
     selector: RouteSelector,
-    quota_date: str,
+    quota_date: str | datetime,
     request_id: str,
     excluded_routes: set[tuple[str, str, str, str]],
 ) -> tuple[SelectedRoute, AsyncIterator[bytes], bytes | None]:
@@ -525,6 +522,7 @@ async def _stream_and_record_usage(
                 quota_date=quota_date,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                quota_refresh_mode=selected.quota_refresh_mode,
             )
             latency_ms = int((perf_counter() - started_at) * 1000)
             usage_manager.log_request(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
 from token_router.app.config import (
@@ -8,7 +9,13 @@ from token_router.app.config import (
     ModelInstanceConfig,
     ModelInstanceKeyConfig,
 )
-from token_router.app.router.quota import is_exhausted, stage_for_usage, usage_ratio
+from token_router.app.router.quota import (
+    QuotaWindow,
+    is_exhausted,
+    quota_window_for,
+    stage_for_usage,
+    usage_ratio,
+)
 from token_router.app.router.runtime import RouteKey, route_key
 from token_router.app.schemas.router import SelectedRoute
 from token_router.app.usage import UsageManager
@@ -27,7 +34,7 @@ class RouteSelector:
         self,
         model: str,
         router: Mapping[str, Any] | None,
-        quota_date: str,
+        quota_date: str | datetime,
         response_format_type: str | None = None,
         responses_api: str | None = None,
         responses_tool_types: set[str] | None = None,
@@ -74,7 +81,7 @@ class RouteSelector:
 
         raise NoAvailableModelError("no available model instance")
 
-    def list_status(self, quota_date: str) -> list[SelectedRoute]:
+    def list_status(self, quota_date: str | datetime) -> list[SelectedRoute]:
         return [
             self._build_route(instance, key_config, quota_date)
             for instance in self.config.model_instances
@@ -85,7 +92,7 @@ class RouteSelector:
         self,
         requested_model: str | None,
         router_options: Mapping[str, Any],
-        quota_date: str,
+        quota_date: str | datetime,
         response_format_type: str | None = None,
         responses_api: str | None = None,
         responses_tool_types: set[str] | None = None,
@@ -191,18 +198,21 @@ class RouteSelector:
         self,
         instance: ModelInstanceConfig,
         key_config: ModelInstanceKeyConfig,
-        quota_date: str,
+        quota_date: str | datetime,
     ) -> SelectedRoute:
-        usage = self.usage_manager.get_usage(
+        window = self._quota_window(key_config, quota_date)
+        usage = self.usage_manager.get_usage_for_dates(
             instance.provider,
             key_config.key_id,
             instance.name,
-            quota_date,
+            window.usage_dates,
+            key_config.quota_refresh_mode,
         )
-        key_request_count = self.usage_manager.get_key_request_count(
+        key_request_count = self.usage_manager.get_key_request_count_for_dates(
             instance.provider,
             key_config.key_id,
-            quota_date,
+            window.usage_dates,
+            key_config.quota_refresh_mode,
         )
         token_exhausted = is_exhausted(usage.total_tokens, key_config.daily_quota)
         request_exhausted = (
@@ -228,4 +238,21 @@ class RouteSelector:
             enabled=instance.enabled and key_config.enabled,
             available=instance.enabled and key_config.enabled and not exhausted,
             groups=tuple(instance.groups),
+            quota_refresh_mode=key_config.quota_refresh_mode,
+            quota_record_date=window.record_date,
+            quota_usage_dates=window.usage_dates,
         )
+
+    def _quota_window(
+        self,
+        key_config: ModelInstanceKeyConfig,
+        quota_date: str | datetime,
+    ) -> QuotaWindow:
+        if isinstance(quota_date, datetime):
+            return quota_window_for(
+                quota_date,
+                self.config.refresh.timezone,
+                self.config.refresh.daily_reset_hour,
+                key_config.quota_refresh_mode,
+            )
+        return QuotaWindow(record_date=quota_date, usage_dates=(quota_date,))

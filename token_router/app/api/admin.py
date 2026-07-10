@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from html import escape
 from typing import Any
 
@@ -7,7 +8,6 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from token_router.app.config import AppConfig
-from token_router.app.router.quota import quota_date_for
 from token_router.app.router.selector import NoAvailableModelError, RouteSelector
 from token_router.app.usage import UsageManager
 
@@ -22,12 +22,8 @@ def _get_config(request: Request) -> AppConfig:
     return config
 
 
-def _quota_date(request: Request, config: AppConfig) -> str:
-    return quota_date_for(
-        request.app.state.now_fn(),
-        config.refresh.timezone,
-        config.refresh.daily_reset_hour,
-    )
+def _quota_date(request: Request, config: AppConfig) -> datetime:
+    return request.app.state.now_fn()
 
 
 @router.get("/models")
@@ -50,11 +46,12 @@ def usage_page(request: Request) -> HTMLResponse:
     rows = []
     key_summaries: dict[tuple[str, str, str], dict[str, Any]] = {}
     for route in routes:
-        usage = usage_manager.get_usage(
+        usage = usage_manager.get_usage_for_dates(
             route.provider,
             route.key_id,
             route.model_name,
-            quota_date,
+            route.quota_usage_dates,
+            route.quota_refresh_mode,
         )
         row = {
             "provider": route.provider,
@@ -108,7 +105,7 @@ def usage_page(request: Request) -> HTMLResponse:
             summary["available_count"] += 1
 
     html = _render_usage_page(
-        quota_date=quota_date,
+        quota_date=_quota_label(routes),
         timezone=config.refresh.timezone,
         reset_hour=config.refresh.daily_reset_hour,
         key_summaries=sorted(
@@ -160,6 +157,14 @@ def _response_format_type(payload: dict[str, Any]) -> str | None:
     if isinstance(response_format_type, str):
         return response_format_type
     return None
+
+
+def _quota_label(routes) -> str:
+    labels = {
+        ", ".join(route.quota_usage_dates)
+        for route in routes
+    }
+    return "; ".join(sorted(labels))
 
 
 def _render_usage_page(
@@ -377,8 +382,8 @@ def _render_usage_page(
         <div class="subtitle">Daily token usage by provider, endpoint, API key, and model.</div>
       </div>
       <div class="meta">
-        <div>Quota date: <strong>{escape(quota_date)}</strong></div>
-        <div>Reset: {escape(timezone)} at {reset_hour:02d}:00</div>
+        <div>Quota window(s): <strong>{escape(quota_date)}</strong></div>
+        <div>Refresh boundary: {escape(timezone)} at {reset_hour:02d}:00</div>
       </div>
     </header>
 

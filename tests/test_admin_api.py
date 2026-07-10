@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from fastapi.testclient import TestClient
 
 from token_router.app.config import ModelInstanceConfig
@@ -92,3 +95,46 @@ def test_usage_page_shows_key_summary_and_model_usage(
     assert "20.0%" in response.text
     assert "Priority" in response.text
     assert "Requests / Quota" in response.text
+
+
+def test_route_preview_uses_delayed_calendar_day_usage_window(
+    app_config, usage_manager
+):
+    app_config.model_instances[0] = ModelInstanceConfig(
+        name="model-a",
+        provider="test",
+        endpoint="api",
+        level=1,
+        priority=10,
+        keys=[
+            {
+                "key_id": "k1",
+                "daily_quota": 200,
+                "quota_refresh_mode": "delayed_calendar_day",
+            }
+        ],
+        groups=["general"],
+    )
+    for quota_date, total_tokens in (("2026-05-26", 150), ("2026-05-27", 20)):
+        usage_manager.record_usage(
+            provider="test",
+            key_id="k1",
+            model_name="model-a",
+            quota_date=quota_date,
+            prompt_tokens=total_tokens,
+            completion_tokens=0,
+            quota_refresh_mode="delayed_calendar_day",
+        )
+    before_release = datetime(
+        2026, 5, 27, 10, 59, tzinfo=ZoneInfo("Asia/Shanghai")
+    )
+    app = create_app(app_config, usage_manager, now_fn=lambda: before_release)
+    client = TestClient(app)
+
+    response = client.post(
+        "/admin/route/preview", json={"model": "auto", "router": {"level": 1}}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["selected"]["used_tokens"] == 170
+    assert response.json()["selected"]["quota_record_date"] == "2026-05-27"

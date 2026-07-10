@@ -22,8 +22,12 @@ class SelectedRoute:
     enabled: bool
     available: bool
     groups: tuple[str, ...]
+    quota_refresh_mode: str = "shifted_day"
+    quota_record_date: str = ""
+    quota_usage_dates: tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         data = asdict(self)
         data["groups"] = list(self.groups)
+        data["quota_usage_dates"] = list(self.quota_usage_dates)
         return data

@@ -115,7 +115,7 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     )
     monkeypatch.setenv("ARK_API_KEY", "ark-test")
     monkeypatch.setenv("ARK_PAYG_API_KEY", "ark-payg-test")
-    monkeypatch.setenv("ARK_MODEL", "doubao-seed-2-0-lite-260215")
+    monkeypatch.setenv("ARK_MODEL", "doubao-seed-2-1-pro-260628")
     monkeypatch.setenv("DS_PAYG_API_KEY", "ds-payg-test")
     monkeypatch.setenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1")
     monkeypatch.setenv("AGNES_API_KEY", "agnes-test")
@@ -137,6 +137,7 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     }
     assert set(config.providers["xiaomi_mimo"].endpoints) == {"token_plan"}
     assert config.model_instances[0].endpoint == "token_plan"
+    assert config.model_instances[1].name == "doubao-seed-2-1-pro-260628"
     assert config.providers["xiaomi_mimo"].get_endpoint("token_plan").auth_header == "api_key"
     assert config.providers["volcengine_ark"].get_endpoint("api").auth_header == "authorization_bearer"
     assert [
@@ -169,8 +170,8 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     }
     assert max_concurrency_by_provider == {
         "xiaomi_mimo": 2,
-        "volcengine_ark": 4,
-        "deepseek": 4,
+        "volcengine_ark": 8,
+        "deepseek": 8,
         "agnes": 2,
         "openrouter": 2,
     }
@@ -189,7 +190,7 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     openrouter_keys = config.model_instances[-1].iter_key_configs()
     assert [key.key_id for key in openrouter_keys] == ["openrouter_1", "openrouter_2"]
     assert [key.priority for key in openrouter_keys] == [100, 110]
-    assert [key.daily_request_quota for key in openrouter_keys] == [50, 50]
+    assert [key.daily_request_quota for key in openrouter_keys] == [40, 45]
     ark_payg_instances = [
         instance
         for instance in config.model_instances
@@ -205,6 +206,29 @@ def test_config_example_uses_current_local_providers(monkeypatch):
         "doubao-seed-2-1-turbo-260628",
     ]
     assert all(instance.requires_explicit_model for instance in ark_payg_instances)
+    assert all(
+        key.daily_quota == 10000000
+        for instance in ark_payg_instances
+        for key in instance.iter_key_configs()
+    )
+    ark_plan_key_configs = [
+        key_config
+        for instance in config.model_instances
+        if instance.provider == "volcengine_ark"
+        for key_config in instance.iter_key_configs()
+        if key_config.key_id != "volcengine_ark_payg"
+    ]
+    assert ark_plan_key_configs
+    assert all(key.daily_quota == 1800000 for key in ark_plan_key_configs)
+    assert all(
+        key.quota_refresh_mode == "delayed_calendar_day"
+        for key in ark_plan_key_configs
+    )
+    assert all(
+        key.quota_refresh_mode == "shifted_day"
+        for instance in ark_payg_instances
+        for key in instance.iter_key_configs()
+    )
     deepseek_payg_instances = [
         instance
         for instance in config.model_instances
@@ -216,6 +240,7 @@ def test_config_example_uses_current_local_providers(monkeypatch):
     ]
     assert deepseek_payg_instances[0].upstream_model_name == "deepseek-v4-pro"
     assert deepseek_payg_instances[0].requires_explicit_model is True
+    assert deepseek_payg_instances[0].iter_key_configs()[0].daily_quota == 10000000
 
 
 def test_provider_can_separate_api_and_token_plan_endpoints(tmp_path, monkeypatch):

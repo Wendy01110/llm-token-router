@@ -141,6 +141,7 @@ def test_expand_eval_targets_expands_each_enabled_model_key():
             level=1,
             daily_quota=1000,
             daily_request_quota=None,
+            quota_refresh_mode="shifted_day",
         ),
         EvalTarget(
             provider="ark",
@@ -151,6 +152,7 @@ def test_expand_eval_targets_expands_each_enabled_model_key():
             level=1,
             daily_quota=2000,
             daily_request_quota=None,
+            quota_refresh_mode="shifted_day",
         ),
     ]
 

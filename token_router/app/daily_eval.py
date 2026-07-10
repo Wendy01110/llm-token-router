@@ -17,7 +17,7 @@ import httpx
 
 from token_router.app.config import ApiKeyConfig, AppConfig, EndpointConfig
 from token_router.app.providers.openai_compatible import OpenAICompatibleProvider
-from token_router.app.router.quota import quota_date_for
+from token_router.app.router.quota import quota_window_for
 from token_router.app.usage import UsageManager
 
 
@@ -80,6 +80,7 @@ class EvalTarget:
     level: int
     daily_quota: int
     daily_request_quota: int | None
+    quota_refresh_mode: str
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,7 @@ def expand_eval_targets(config: AppConfig) -> list[EvalTarget]:
                     level=instance.level,
                     daily_quota=key_config.daily_quota,
                     daily_request_quota=key_config.daily_request_quota,
+                    quota_refresh_mode=key_config.quota_refresh_mode,
                 )
             )
     return targets
@@ -264,10 +266,17 @@ async def run_model_eval(
     usage_manager: UsageManager,
     provider: OpenAICompatibleProvider,
     target: EvalTarget,
-    quota_date: str,
+    quota_date: str | None,
     hotspot_context: str,
     max_tokens: int,
 ) -> ModelEvalResult:
+    if quota_date is None:
+        quota_date = quota_window_for(
+            datetime.now(ZoneInfo(config.refresh.timezone)),
+            config.refresh.timezone,
+            config.refresh.daily_reset_hour,
+            target.quota_refresh_mode,
+        ).record_date
     endpoint_config = config.providers[target.provider].get_endpoint(target.endpoint)
     api_key = find_api_key(endpoint_config, target.key_id)
     payload = build_eval_payload(
@@ -319,6 +328,7 @@ async def run_model_eval(
         quota_date=quota_date,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        quota_refresh_mode=target.quota_refresh_mode,
     )
     usage_manager.log_request(
         request_id=str(response.get("id") or f"daily-eval-{uuid4()}"),
@@ -387,11 +397,13 @@ async def run_daily_eval(
     concurrency: int = 4,
 ) -> DailyEvalResult:
     current_time = now or datetime.now().astimezone()
-    quota_date = quota_date_for(
+    targets = expand_eval_targets(config)
+    quota_date = quota_window_for(
         current_time,
         config.refresh.timezone,
         config.refresh.daily_reset_hour,
-    )
+        "shifted_day",
+    ).record_date
     tavily_results = await fetch_tavily_hotspots(tavily_api_key)
     hotspot_context = format_hotspot_context(tavily_results)
     provider = OpenAICompatibleProvider()
@@ -399,7 +411,7 @@ async def run_daily_eval(
         config=config,
         usage_manager=usage_manager,
         provider=provider,
-        targets=expand_eval_targets(config),
+        targets=targets,
         quota_date=quota_date,
         hotspot_context=hotspot_context,
         max_tokens=max_tokens,

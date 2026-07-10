@@ -13,6 +13,7 @@ Use the local `llm-token-router` as an OpenAI-compatible Chat Completions provid
 
 Before integrating a project, read the latest local router docs for the current supported request shape and router options:
 
+- `/Users/wendy/code/python/llm-token-router/config.yaml` for current model names, levels, priorities, and quotas
 - `/Users/wendy/code/python/llm-token-router/docs/client-integration-cn.md`
 - `/Users/wendy/code/python/llm-token-router/README-CN.md`
 - `/Users/wendy/code/python/llm-token-router/examples/openai_chat_test.py`
