@@ -9,25 +9,6 @@ routing:
   runtime_cooldown_seconds: 30
 
 providers:
-  # xiaomi_mimo:
-  #   type: openai_compatible
-  #   stream_usage_mode: parse_only
-  #   endpoints:
-  #     token_plan:
-  #       base_url: ${MIMO_TOKEN_PLAN_BASE_URL}
-  #       auth_header: api_key
-  #       stream_usage_mode: no_option_usage_chunk
-  #       keys:
-  #         - id: mimo_token_plan
-  #           value: ${MIMO_TOKEN_PLAN_KEY}
-  #     # Future extension example: keep commented until you have a separate API key.
-  #     # api:
-  #     #   base_url: ${MIMO_API_BASE_URL}
-  #     #   auth_header: api_key
-  #     #   keys:
-  #     #     - id: mimo_api
-  #     #       value: ${MIMO_API_KEY}
-
   volcengine_ark:
     type: openai_compatible
     stream_usage_mode: ark_include_usage
@@ -44,17 +25,6 @@ providers:
             value: ${ARK_API_KEY_2}
           - id: volcengine_ark_payg
             value: ${ARK_PAYG_API_KEY}
-
-  # deepseek:
-  #   type: openai_compatible
-  #   stream_usage_mode: openai_include_usage
-  #   endpoints:
-  #     api:
-  #       base_url: https://api.deepseek.com
-  #       auth_header: authorization_bearer
-  #       keys:
-  #         - id: deepseek_payg
-  #           value: ${DS_PAYG_API_KEY}
 
   agnes:
     type: openai_compatible
@@ -82,30 +52,6 @@ providers:
             value: ${OPENROUTER_API_KEY_2}
 
 model_instances:
-  # - name: mimo-v2.5-pro
-  #   provider: xiaomi_mimo
-  #   endpoint: token_plan
-  #   level: 1
-  #   max_concurrency: 2
-  #   keys:
-  #     - key_id: mimo_token_plan
-  #       daily_quota: 1800000
-  #       priority: 10
-  #   groups: [coding, general]
-
-  # - name: payg/deepseek-v4-pro
-  #   upstream_model: deepseek-v4-pro
-  #   provider: deepseek
-  #   endpoint: api
-  #   level: 1
-  #   max_concurrency: 8
-  #   requires_explicit_model: true
-  #   keys:
-  #     - key_id: deepseek_payg
-  #       daily_quota: 10000000
-  #       priority: 10
-  #   groups: [reasoning, coding, general]
-
   - name: payg/doubao-seed-2-1-turbo-260628
     upstream_model: doubao-seed-2-1-turbo-260628
     provider: volcengine_ark
@@ -212,38 +158,6 @@ model_instances:
         priority: 20
     groups: [reasoning, coding, general]
     unsupported_response_format_types: [json_object]
-
-  - name: glm-4-7-251222
-    provider: volcengine_ark
-    endpoint: api
-    level: 3
-    max_concurrency: 4
-    keys:
-      - key_id: volcengine_ark_1
-        daily_quota: 1800000
-        quota_refresh_mode: delayed_calendar_day
-        priority: 30
-      - key_id: volcengine_ark_2
-        daily_quota: 1800000
-        quota_refresh_mode: delayed_calendar_day
-        priority: 30
-    groups: [general, fallback]
-
-  - name: deepseek-v3-2-251201
-    provider: volcengine_ark
-    endpoint: api
-    level: 3
-    max_concurrency: 4
-    keys:
-      - key_id: volcengine_ark_1
-        daily_quota: 1800000
-        quota_refresh_mode: delayed_calendar_day
-        priority: 40
-      - key_id: volcengine_ark_2
-        daily_quota: 1800000
-        quota_refresh_mode: delayed_calendar_day
-        priority: 40
-    groups: [general, coding, fallback]
 
   - name: doubao-seed-2-0-lite-260428
     provider: volcengine_ark
